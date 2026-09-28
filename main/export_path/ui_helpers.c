@@ -5,6 +5,9 @@
 
 #include "ui_helpers.h"
 #include "ui_theme.h"
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+#include "esp_heap_caps.h"
+#endif
 
 void _ui_bar_set_property(lv_obj_t * target, int id, int val)
 {
@@ -340,10 +343,72 @@ void _ui_switch_theme(int val)
 // ==================== Project-custom helpers (not SquareLine generated) ====================
 // Hand-written style code repeated across multiple screens, extracted here for sharing.
 
-// Outer bezel ring (360x360, centered, static circular border; replaces the
-// rotating spinner to avoid an arc seam gap). Ring COLOR comes from the active
-// UI theme; border_width stays caller-supplied (most pages use 10, a few use 8).
+// Outer bezel ring (360x360 on the original board, 452x452 on StopWatch).
+// Ring COLOR comes from the active UI theme. The original board retains each
+// page's requested width; StopWatch uses one 12-pixel width on every page.
 // Callers keep their own lv_obj_move_foreground() after this.
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+#define STOPWATCH_RING_SIZE 452
+#define STOPWATCH_RING_WIDTH 12
+
+// LVGL's rounded rectangle border produces uneven coverage at a few angles
+// on the 466-pixel AMOLED. Generate one symmetric alpha-only image instead;
+// all pages share it and recolor it to the active theme's ring color.
+static lv_img_dsc_t s_stopwatch_ring_img;
+
+static bool stopwatch_ring_mask_init(void)
+{
+    if(s_stopwatch_ring_img.data) return true;
+    const size_t size = STOPWATCH_RING_SIZE * STOPWATCH_RING_SIZE;
+    uint8_t *mask = heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if(!mask) return false;
+
+    const float center = STOPWATCH_RING_SIZE / 2.0f;
+    const float outer = (STOPWATCH_RING_SIZE - 1) / 2.0f;
+    const float inner = outer - STOPWATCH_RING_WIDTH;
+    const float outer_empty_sq = (outer + 1.0f) * (outer + 1.0f);
+    const float outer_full_sq = (outer - 1.0f) * (outer - 1.0f);
+    const float inner_empty_sq = (inner - 1.0f) * (inner - 1.0f);
+    const float inner_full_sq = (inner + 1.0f) * (inner + 1.0f);
+    const float outer_sq = outer * outer;
+    const float inner_sq = inner * inner;
+
+    for(int y = 0; y < STOPWATCH_RING_SIZE; ++y) {
+        const float dy = y + 0.5f - center;
+        for(int x = 0; x < STOPWATCH_RING_SIZE; ++x) {
+            const float dx = x + 0.5f - center;
+            const float d_sq = dx * dx + dy * dy;
+            uint8_t alpha = 0;
+            if(d_sq >= inner_full_sq && d_sq <= outer_full_sq) {
+                alpha = 255;
+            } else if(d_sq >= inner_empty_sq && d_sq <= outer_empty_sq) {
+                // Supersample only the two edges, so their pixel coverage is
+                // smooth and identical in every quadrant without an arc seam.
+                int covered = 0;
+                for(int sy = 0; sy < 4; ++sy) {
+                    const float sample_y = dy + (sy - 1.5f) * 0.25f;
+                    for(int sx = 0; sx < 4; ++sx) {
+                        const float sample_x = dx + (sx - 1.5f) * 0.25f;
+                        const float sample_sq = sample_x * sample_x + sample_y * sample_y;
+                        if(sample_sq >= inner_sq && sample_sq <= outer_sq) ++covered;
+                    }
+                }
+                alpha = (covered * 255 + 8) / 16;
+            }
+            mask[y * STOPWATCH_RING_SIZE + x] = alpha;
+        }
+    }
+
+    s_stopwatch_ring_img.header.always_zero = 0;
+    s_stopwatch_ring_img.header.w = STOPWATCH_RING_SIZE;
+    s_stopwatch_ring_img.header.h = STOPWATCH_RING_SIZE;
+    s_stopwatch_ring_img.header.cf = LV_IMG_CF_ALPHA_8BIT;
+    s_stopwatch_ring_img.data_size = size;
+    s_stopwatch_ring_img.data = mask;
+    return true;
+}
+#endif
+
 lv_obj_t * ui_helpers_create_ring(lv_obj_t * parent, uint8_t border_width)
 {
     const ui_theme_t *th = ui_theme_active();
@@ -362,10 +427,22 @@ lv_obj_t * ui_helpers_create_ring(lv_obj_t * parent, uint8_t border_width)
         return ring;
     }
 
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    if(stopwatch_ring_mask_init()) {
+        lv_obj_t *ring = lv_img_create(parent);
+        lv_img_set_src(ring, &s_stopwatch_ring_img);
+        lv_obj_set_align(ring, LV_ALIGN_CENTER);
+        lv_obj_set_style_img_recolor(ring, ui_theme_color_lv(UI_COLOR_RING), LV_PART_MAIN);
+        lv_obj_set_style_img_recolor_opa(ring, LV_OPA_COVER, LV_PART_MAIN);
+        lv_obj_clear_flag(ring, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+        return ring;
+    }
+#endif
+
     lv_obj_t *ring = lv_obj_create(parent);
 #if CONFIG_OBD_HW_VERSION_M5STOPWATCH
     lv_obj_set_size(ring, 452, 452);
-    border_width = border_width == 8 ? 10 : 12;
+    border_width = STOPWATCH_RING_WIDTH;
 #else
     lv_obj_set_size(ring, 360, 360);
 #endif

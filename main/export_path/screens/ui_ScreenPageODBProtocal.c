@@ -16,6 +16,9 @@ void ui_ScreenPageODBProtocal_screen_init(void)
     ui_helpers_style_screen_bg(ui_ScreenPageODBProtocal);
     lv_obj_set_style_bg_opa(ui_ScreenPageODBProtocal, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
 
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    ui_SpinnerODBProtocalEgg = ui_helpers_create_ring(ui_ScreenPageODBProtocal, 10);
+#else
     ui_SpinnerODBProtocalEgg = lv_obj_create(ui_ScreenPageODBProtocal);   // white ring: static circular border, replaces the rotating spinner, removes the arc seam gap
     lv_obj_set_size(ui_SpinnerODBProtocalEgg, 360, 360);
     lv_obj_set_align(ui_SpinnerODBProtocalEgg, LV_ALIGN_CENTER);
@@ -30,6 +33,7 @@ void ui_ScreenPageODBProtocal_screen_init(void)
     lv_obj_set_style_arc_color(ui_SpinnerODBProtocalEgg, lv_color_hex(0xFFFFFF), LV_PART_INDICATOR | LV_STATE_DEFAULT);
     lv_obj_set_style_arc_opa(ui_SpinnerODBProtocalEgg, 0, LV_PART_INDICATOR | LV_STATE_DEFAULT);
     lv_obj_set_style_arc_width(ui_SpinnerODBProtocalEgg, 10, LV_PART_INDICATOR | LV_STATE_DEFAULT);
+#endif
 
     ui_ArcPageODBProtocalBack = lv_arc_create(ui_ScreenPageODBProtocal);
     lv_obj_set_width(ui_ArcPageODBProtocalBack,340);
