@@ -21,7 +21,9 @@ static lv_obj_t *s_roller_page = NULL;
 static lv_obj_t *s_roller_vehicle = NULL;
 static lv_obj_t *s_roller_theme = NULL;
 #if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+#define VEHICLE_SETTLE_MS 2000
 static lv_timer_t *s_vehicle_restart_timer = NULL;
+static bool s_vehicle_touch_active = false;
 #endif
 static lv_obj_t *s_slider_bright = NULL;
 static lv_obj_t *s_label_bright_val = NULL;
@@ -65,23 +67,46 @@ static void on_rc_toggle(lv_event_t *e)
     nvs_cfg_set(&cfg);
 }
 
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+static void schedule_vehicle_change(void)
+{
+    // If the user scrolls back to the saved vehicle, cancel the pending change.
+    if (lv_roller_get_selected(s_roller_vehicle) == nvs_cfg_get()->vehicle_profile_idx) {
+        if (s_vehicle_restart_timer) lv_timer_pause(s_vehicle_restart_timer);
+        return;
+    }
+    if (!s_vehicle_restart_timer) {
+        s_vehicle_restart_timer = lv_timer_create(restart_after_vehicle_change,
+                                                   VEHICLE_SETTLE_MS, NULL);
+    } else {
+        lv_timer_reset(s_vehicle_restart_timer);
+        lv_timer_resume(s_vehicle_restart_timer);
+    }
+}
+#endif
+
 static void on_vehicle_roller_change(lv_event_t *e)
 {
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    lv_event_code_t code = lv_event_get_code(e);
+    if (code == LV_EVENT_PRESSED) {
+        s_vehicle_touch_active = true;
+        if (s_vehicle_restart_timer) lv_timer_pause(s_vehicle_restart_timer);
+    } else if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
+        s_vehicle_touch_active = false;
+        // LVGL chooses the final roller row on release. Start the full delay now.
+        schedule_vehicle_change();
+    } else if (code == LV_EVENT_VALUE_CHANGED && !s_vehicle_touch_active) {
+        // Also handles non-pointer changes and any late roller value updates.
+        schedule_vehicle_change();
+    }
+#else
+    if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) return;
     uint8_t selected = (uint8_t)lv_roller_get_selected(s_roller_vehicle);
-    // vehicle_profile_set_active clamps out-of-range indices, no need here.
     nvs_user_cfg_t cfg = *nvs_cfg_get();
     cfg.vehicle_profile_idx = selected;
     nvs_cfg_set(&cfg);
-    // Apply immediately so gear detection etc. picks it up without reboot.
     vehicle_profile_set_active(selected);
-#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
-    // Wait until roller motion settles so a swipe can reach the intended row.
-    if (!s_vehicle_restart_timer) {
-        s_vehicle_restart_timer = lv_timer_create(restart_after_vehicle_change, 900, NULL);
-        lv_timer_set_repeat_count(s_vehicle_restart_timer, 1);
-    } else {
-        lv_timer_reset(s_vehicle_restart_timer);
-    }
 #endif
 }
 
@@ -97,7 +122,20 @@ static void on_theme_roller_change(lv_event_t *e)
 #if CONFIG_OBD_HW_VERSION_M5STOPWATCH
 static void restart_after_vehicle_change(lv_timer_t *timer)
 {
-    LV_UNUSED(timer);
+    if (s_vehicle_touch_active) {
+        lv_timer_pause(timer);
+        return;
+    }
+    uint8_t selected = (uint8_t)lv_roller_get_selected(s_roller_vehicle);
+    if (selected == nvs_cfg_get()->vehicle_profile_idx) {
+        lv_timer_pause(timer);
+        return;
+    }
+    lv_timer_pause(timer);
+    nvs_user_cfg_t cfg = *nvs_cfg_get();
+    cfg.vehicle_profile_idx = selected;
+    nvs_cfg_set(&cfg);
+    vehicle_profile_set_active(selected);
     esp_restart();  // screens and their vehicle emblems are created once at boot
 }
 #endif
@@ -178,7 +216,13 @@ void ui_ScreenPageSettings_screen_init(void)
     lv_obj_set_height(s_roller_vehicle, 30);   // explicit: font is applied by style_dark_roller below
     ui_helpers_style_dark_roller(s_roller_vehicle, &ui_font_FontTypoderSize20);
     lv_obj_align(s_roller_vehicle, LV_ALIGN_CENTER, 0, -31);
-    lv_obj_add_event_cb(s_roller_vehicle, on_vehicle_roller_change, LV_EVENT_VALUE_CHANGED, NULL);
+    lv_obj_add_event_cb(s_roller_vehicle, on_vehicle_roller_change,
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+                        LV_EVENT_ALL,
+#else
+                        LV_EVENT_VALUE_CHANGED,
+#endif
+                        NULL);
 
     // ====== Row 3: UI Theme ======
     lv_obj_t *label_theme = lv_label_create(ui_ScreenPageSettings);

@@ -17,13 +17,21 @@ StopWatch UserDemo. The desktop project root is
   `JCW F56 8AT` displays the F56-era JCW emblem and `GP3 F56 8AT` displays the
   original GP3 grille badge silhouette. The independent MINI LOGO setting was
   removed. Other vehicle profiles show the SKY GAUGE project name.
+- The user confirmed the GP glyph and baseline on the real screen. On StopWatch,
+  VEHICLE waits 2 seconds after the last release before saving and rebooting;
+  another drag restarts the timer. This was also verified on the device.
 - The F56 JCW 8AT and GP3 8AT profiles use MINI's published 8-speed ratios and
   2.955 final drive. GP3 was appended to preserve saved profile indices. Gear
   detection and actual OBD data still need validation on the user's car.
 - Badge source: MINI Spain's F56 JCW GP page provides the original
   `jcw_logo.svg`, archived as `docs/mini_jcw_f56_source.svg`. The GP3 badge
-  is a flat red silhouette extracted from the genuine MINI GP3 front grille
-  part 51139481307 photo. Both are embedded as RGB565A8 LVGL images.
+  uses the user's full-resolution red GP reference with its white outline,
+  archived as `docs/mini_gp3_reference.webp`. Only the two letters are
+  extracted; the source orientation is preserved. The derived PNG is
+  archived as `docs/mini_gp3_flat.png`. Both emblems are embedded as
+  RGB565A8 LVGL images.
+  Because StopWatch enables `LV_COLOR_16_SWAP`, image RGB565 bytes are
+  stored high-byte-first before alpha, matching the existing assets.
   Sources: https://www.mini.es/es_ES/home/range/mini-jcw-gp.html and
   https://www.outmotoring.com/front-bumper-upper-grill-trim-mini-jcw-gp3-51139481307.html
 - Drivetrain source: MINI's 2021 3 Door Product Guide, pages 1-2:
