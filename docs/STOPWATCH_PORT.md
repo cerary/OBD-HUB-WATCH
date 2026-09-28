@@ -17,6 +17,11 @@ StopWatch UserDemo. The desktop project root is
   `JCW F56 8AT` displays the F56-era JCW emblem and `GP3 F56 8AT` displays the
   original GP3 grille badge silhouette. The independent MINI LOGO setting was
   removed. Other vehicle profiles show the SKY GAUGE project name.
+- The legacy SquareLine 306x38 black-ear header mask caused two black
+  squares beside the gray gauge arc and on the red RPM WARN test screen.
+  The StopWatch build uses a transparent 1x1 replacement; the original
+  asset remains for other boards. The user verified both pages and the
+  TEST return flow on the real display.
 - The user confirmed the GP glyph and baseline on the real screen. On StopWatch,
   VEHICLE waits 2 seconds after the last release before saving and rebooting;
   another drag restarts the timer. This was also verified on the device.
