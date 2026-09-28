@@ -1,12 +1,16 @@
 file(GLOB_RECURSE SOURCES_C *.c)
 file(GLOB_RECURSE SOURCES_CPP *.cpp)
 
+# IDF also evaluates this file while collecting component requirements, when
+# CMAKE_CURRENT_SOURCE_DIR can refer to the project root rather than main/.
+set(OBD_MAIN_DIR "${CMAKE_CURRENT_LIST_DIR}")
+
 # ---- UI theme table codegen ------------------------------------------------
 # themes/registry.txt + themes/*/<id>/theme.toml -> export_path/ui_theme_generated.c
 # Runs BEFORE idf_component_register because SRC_DIRS is globbed at register time.
 # Adding a theme requires editing registry.txt, and registry.txt is watched
 # below, so a new theme always triggers a reconfigure and regeneration.
-set(THEMES_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../themes")
+set(THEMES_DIR "${OBD_MAIN_DIR}/../themes")
 file(GLOB THEME_MANIFESTS "${THEMES_DIR}/*/*/theme.toml")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
              "${THEMES_DIR}/registry.txt" ${THEME_MANIFESTS})
@@ -18,7 +22,7 @@ if(NOT DEFINED python)
 endif()
 
 execute_process(
-    COMMAND "${python}" "${CMAKE_CURRENT_SOURCE_DIR}/../tools/gen_themes.py"
+    COMMAND "${python}" "${OBD_MAIN_DIR}/../tools/gen_themes.py"
     RESULT_VARIABLE THEME_GEN_RESULT
     OUTPUT_VARIABLE THEME_GEN_STDOUT
     ERROR_VARIABLE  THEME_GEN_STDERR
@@ -40,7 +44,7 @@ set(OBD_GAUGE_GIT_BRANCH "unknown")
 set(OBD_GAUGE_GIT_COUNT 0)
 
 execute_process(
-    COMMAND git -C "${CMAKE_CURRENT_SOURCE_DIR}/.." rev-parse --short=12 HEAD
+    COMMAND git -C "${OBD_MAIN_DIR}/.." rev-parse --short=12 HEAD
     RESULT_VARIABLE OBD_GAUGE_GIT_HASH_RESULT
     OUTPUT_VARIABLE OBD_GAUGE_GIT_HASH
     OUTPUT_STRIP_TRAILING_WHITESPACE
@@ -50,7 +54,7 @@ if(NOT OBD_GAUGE_GIT_HASH_RESULT EQUAL 0 OR OBD_GAUGE_GIT_HASH STREQUAL "")
 endif()
 
 execute_process(
-    COMMAND git -C "${CMAKE_CURRENT_SOURCE_DIR}/.." rev-parse --abbrev-ref HEAD
+    COMMAND git -C "${OBD_MAIN_DIR}/.." rev-parse --abbrev-ref HEAD
     RESULT_VARIABLE OBD_GAUGE_GIT_BRANCH_RESULT
     OUTPUT_VARIABLE OBD_GAUGE_GIT_BRANCH
     OUTPUT_STRIP_TRAILING_WHITESPACE
@@ -60,7 +64,7 @@ if(NOT OBD_GAUGE_GIT_BRANCH_RESULT EQUAL 0 OR OBD_GAUGE_GIT_BRANCH STREQUAL "")
 endif()
 
 execute_process(
-    COMMAND git -C "${CMAKE_CURRENT_SOURCE_DIR}/.." rev-list --count HEAD
+    COMMAND git -C "${OBD_MAIN_DIR}/.." rev-list --count HEAD
     RESULT_VARIABLE OBD_GAUGE_GIT_COUNT_RESULT
     OUTPUT_VARIABLE OBD_GAUGE_GIT_COUNT
     OUTPUT_STRIP_TRAILING_WHITESPACE
@@ -101,7 +105,7 @@ idf_component_register(SRC_DIRS
                     json)
 
 # Auto-generate the bootmedia SPIFFS image; flashed together via idf.py flash
-spiffs_create_partition_image(bootmedia ${CMAKE_CURRENT_SOURCE_DIR}/../bootmedia/slot_a FLASH_IN_PROJECT)
+spiffs_create_partition_image(bootmedia ${OBD_MAIN_DIR}/../bootmedia/slot_a FLASH_IN_PROJECT)
 
 target_compile_definitions(${COMPONENT_LIB} PRIVATE
     OBD_GAUGE_GIT_HASH="${OBD_GAUGE_GIT_HASH}"
