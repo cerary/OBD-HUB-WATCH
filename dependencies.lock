@@ -33,6 +33,20 @@ dependencies:
       registry_url: https://components.espressif.com/
       type: service
     version: 1.2.1
+  espressif/i2c_bus:
+    component_hash: 483112c1619c54c38d0b734fb25f1678733267858a77b7af2f48cc7db6dbbd84
+    dependencies:
+    - name: espressif/cmake_utilities
+      registry_url: https://components.espressif.com
+      require: private
+      version: '*'
+    - name: idf
+      require: private
+      version: '>=4.0'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 1.5.2
   espressif/knob:
     component_hash: 138ed090b4c9090a0a678f695b9d1884b368130c729b7333ed35bd7f4e8da80e
     dependencies:
@@ -50,7 +64,7 @@ dependencies:
   idf:
     source:
       type: idf
-    version: 5.5.3
+    version: 5.5.4
   lvgl/lvgl:
     component_hash: d7c1ac037ae6e85d94897f807d6e7ba0946a83e720074fc95a4f6241da9f9f53
     dependencies: []
@@ -61,9 +75,10 @@ dependencies:
 direct_dependencies:
 - espressif/button
 - espressif/esp_lcd_touch
+- espressif/i2c_bus
 - espressif/knob
 - idf
 - lvgl/lvgl
-manifest_hash: 27d05f969bbcf7ce0d5821d77c4dc16dd873465bc1256c91f0bd0c7dcdc8a863
+manifest_hash: e6405d30f3d6f1b05baf4002a7eda1e1a61882dd5eb4264412c33be194e97696
 target: esp32s3
 version: 2.0.0

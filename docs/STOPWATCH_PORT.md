@@ -1,38 +1,64 @@
-# M5Stack StopWatch port preparation
+# M5Stack StopWatch port status
 
-## Source and target
+Upstream is `steveEcode/obd_brz_gauge` at `528f542`. This branch targets
+M5Stack StopWatch C152 (ESP32-S3, 16 MB flash, 8 MB PSRAM), using the official
+`m5stack/M5StopWatch-UserDemo` at `6b4aa12` as the hardware reference.
 
-- Upstream: `steveEcode/obd_brz_gauge`, baseline commit `528f542`.
-- Local working branch: `port/m5stopwatch`.
-- Original target: Waveshare ESP32-S3-Touch-LCD-1.85, ST77916 QSPI LCD, CST816 touch, 360 x 360 UI.
-- New target: M5Stack StopWatch C152, ESP32-S3R8, CO5300 QSPI AMOLED, CST820B touch, 466 x 466.
-- Hardware reference: `m5stack/M5StopWatch-UserDemo` commit `6b4aa12` (MIT), especially `main/hal/hal_display.cpp`, `hal_ioe.cpp`, and `hal_pmic.cpp`.
+## Verified on the connected device
 
-## Board differences to implement
+- COM6 identified as ESP32-S3 revision 0.2, MAC `28:84:85:44:66:00`.
+- ESP-IDF v5.5.4 is installed at `C:\Users\cerar\esp\esp-idf-v5.5.4`.
+- PMIC and IOE initialization powers the CO5300 AMOLED. Its 468 x 466 panel
+  has a centered 466 x 466 round UI canvas. A frame buffer is required for
+  M5GFX primitive rendering on this panel.
+- A separate display bring-up firmware showed text, circles and a cross.
+  The user confirmed all of them. A separate 466 x 466 SkyGarage dial preview
+  showed an RPM and speed page; the user confirmed a single tap switches pages.
+- The preview has fixed zero readings. It does not run LVGL or read OBD data.
 
-| Function | StopWatch reference | Current gauge code |
-| --- | --- | --- |
-| Display | CO5300 via M5GFX; QSPI SCK 40, D0 41, D1 42, D2 46, D3 45, CS 39, TE 38 | ST77916 driver, different pin order, CS 21 |
-| Touch | CST820B at I2C `0x15`; SDA 47, SCL 48; reset via M5IOE1 | CST816 on a board-specific I2C bus |
-| Power and reset | M5PM1 and M5IOE1; enable L3B, OLED reset and touch reset before display and touch init | TCA9554 or direct GPIO and PWM LCD backlight |
-| Brightness | AMOLED brightness command, 0-255 | LEDC backlight PWM, 0-100 |
-| Canvas | 466 x 466 physical | 360 x 360 fixed generated LVGL screens and artwork |
-| External inputs | No built-in RS485 brake sensor or ADS1115 oil-pressure ADC | V1 can initialize both |
+## Full application changes in this branch
 
-The existing 360 x 360 UI can first be drawn centrally with black margins and touch coordinates translated to the logical canvas. This isolates board bring-up from a later 466 x 466 layout pass. Do not treat changing the resolution macro alone as a complete UI port: generated screens and images contain many fixed 360-pixel dimensions.
+- Added `OBD_HW_VERSION_M5STOPWATCH` and its own CO5300/CST820B/M5PM1/M5IOE1
+  bridge in `main/stopwatch`. The old ST77916, CST816 and GPIO backlight init
+  are bypassed for this board.
+- LVGL is configured for a 466 x 466 canvas. The bezel artwork, RPM, speed and
+  gear arc sizes have a first StopWatch layout pass. Other pages retain their
+  centered layout pending an on-device full-application review.
+- RS485 brake sensing and ADS1115 oil sensing are not started on StopWatch.
+- The application build uses an out-of-tree build directory because upstream
+  tracks `build/` from another machine.
 
-## Proposed implementation order
+The full application has **not** completed compilation or been flashed yet.
+The first ESP-IDF 5.5.4 build was stopped after dependency compilation proved
+unusually slow on this Windows host. BLE/OBD, OTA, all pages, full-app touch and
+brightness therefore remain unverified. Keep the preview firmware as the known
+working display baseline until the full image builds and passes device tests.
 
-1. Add a dedicated `OBD_HW_VERSION_M5STOPWATCH` Kconfig choice. Keep original board builds selectable.
-2. Add a StopWatch board layer using the official M5GFX/M5PM1/M5IOE1 versions and initialization order. Expose display flush, touch polling, and brightness to the existing LVGL 8 app. Avoid initializing the original ST77916 and CST816 drivers on this board.
-3. Keep the original OBD/LVGL application intact for the first bring-up. Disable RS485 and ADS1115 paths on StopWatch. Confirm logo, page navigation, touch, brightness, and reboot on the actual device.
-4. Adapt the UI and artwork to use the 466 x 466 display. Verify circular clipping, touch targets, font sizes, and memory use.
-5. Test BLE with the user's actual ELM327-compatible adapter and vehicle. A working display does not establish OBD adapter or vehicle-profile compatibility.
+## Reproducing the full build
 
-## Local preparation status, 2026-09-28
+From PowerShell, with ESP-IDF v5.5.4 installed:
 
-- Connected serial port: COM6, ESP32-S3 revision 0.2, 16 MB flash, embedded 8 MB PSRAM, MAC `28:84:85:44:66:00` (read with esptool `flash_id`). No flash contents were saved or written.
-- Existing local toolchain: ESP-IDF 5.4.4. The gauge lock file references 5.5.3 and the official StopWatch demo recommends 5.5.4. Use a matching 5.5.x installation for port builds before flashing.
-- The repository tracks a `build/` tree containing another machine's CMake cache. Always use an out-of-tree build directory, for example `idf.py -B ..\\obd-build-stopwatch build`.
-- `main/CMakeLists.txt` was changed to resolve theme and boot-media paths from its own file location; isolated CMake configure and partition generation passed on IDF 5.4.4. A complete firmware build and StopWatch firmware image have not yet been produced.
-- User requested no original-firmware backup. No firmware has been flashed.
+```powershell
+cd C:\Users\cerar\Documents\Codex\2026-09-28\g-i\work\obd_brz_gauge
+.\tools\prepare_stopwatch_deps.ps1
+& 'C:\Users\cerar\esp\esp-idf-v5.5.4\export.ps1'
+& 'C:\Users\cerar\.espressif\python_env\idf5.5_py3.14_env\Scripts\python.exe' 'C:\Users\cerar\esp\esp-idf-v5.5.4\tools\idf.py' -B '..\obd-build-stopwatch' '-DSDKCONFIG=C:\Users\cerar\Documents\Codex\2026-09-28\g-i\work\obd_brz_gauge\sdkconfig.stopwatch' build
+```
+
+The dependency script clones pinned M5GFX 0.2.19, M5PM1 1.0.6 and M5IOE1
+1.0.8 beside this repository and adds `M5GFX` to the latter two components'
+public include dependencies. That patch is required: otherwise the M5 driver
+headers select different C++ class layouts in the main and library translation
+units, causing a runtime vtable overwrite.
+
+## Remaining acceptance
+
+1. Finish a full application build and flash its partition table, bootloader,
+   app and boot-media images to the StopWatch.
+2. Verify the LVGL logo, RPM/speed/gear and settings pages on the round screen;
+   adjust labels and touch targets from a device photo.
+3. Verify brightness, reboot, UI touch navigation and memory stability.
+4. Pair the user's actual BLE OBD adapter and verify readings in a vehicle.
+
+The user approved replacing the factory firmware without a backup. No factory
+image was retained.

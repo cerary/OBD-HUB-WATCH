@@ -27,6 +27,9 @@
 #include "bsp_obd_dsp/exio/TCA9554PWR.h"
 #endif
 #include "bsp_obd_dsp/lcd_driver/ST77916.h"       // internally includes CST816.h & TCA9554PWR.h
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+#include "stopwatch/stopwatch_board.h"
+#endif
 
 /* Application layer */
 #include "bsp_obd_dsp/bsp_board.h"
@@ -92,6 +95,7 @@ SemaphoreHandle_t lvgl_mux = NULL; // non-static: used by BLE scan page
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /* Notify LVGL on DMA transfer complete */
+#if !CONFIG_OBD_HW_VERSION_M5STOPWATCH
 static bool notify_lvgl_flush_ready(esp_lcd_panel_io_handle_t panel_io,
                                      esp_lcd_panel_io_event_data_t *edata,
                                      void *user_ctx)
@@ -100,16 +104,25 @@ static bool notify_lvgl_flush_ready(esp_lcd_panel_io_handle_t panel_io,
     lv_disp_flush_ready(disp_driver);
     return false;
 }
+#endif
 
 /* LVGL flush callback */
 static void lvgl_flush_cb(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t *color_map)
 {
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    stopwatch_board_flush(area->x1, area->y1,
+                          area->x2 - area->x1 + 1, area->y2 - area->y1 + 1,
+                          (const uint16_t *)color_map, lv_disp_flush_is_last(drv));
+    lv_disp_flush_ready(drv);
+#else
     esp_lcd_panel_handle_t panel = (esp_lcd_panel_handle_t)drv->user_data;
     esp_lcd_panel_draw_bitmap(panel, area->x1, area->y1,
                               area->x2 + 1, area->y2 + 1, color_map);
+#endif
 }
 
 /* Coordinate alignment (even boundaries) */
+#if !CONFIG_OBD_HW_VERSION_M5STOPWATCH
 static void lvgl_rounder_cb(lv_disp_drv_t *disp_drv, lv_area_t *area)
 {
     area->x1 = (area->x1 >> 1) << 1;
@@ -117,6 +130,7 @@ static void lvgl_rounder_cb(lv_disp_drv_t *disp_drv, lv_area_t *area)
     area->x2 = ((area->x2 >> 1) << 1) + 1;
     area->y2 = ((area->y2 >> 1) << 1) + 1;
 }
+#endif
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //////////////////// Touch input callbacks //////////////////////////////////////////////////////////////////////////////////////
@@ -125,6 +139,16 @@ static void lvgl_rounder_cb(lv_disp_drv_t *disp_drv, lv_area_t *area)
 /* Touch read callback (polling mode) */
 static void lvgl_touch_cb(lv_indev_drv_t *drv, lv_indev_data_t *data)
 {
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    uint16_t tp_x, tp_y;
+    if (stopwatch_board_touch(&tp_x, &tp_y)) {
+        data->point.x = tp_x;
+        data->point.y = tp_y;
+        data->state = LV_INDEV_STATE_PRESSED;
+    } else {
+        data->state = LV_INDEV_STATE_RELEASED;
+    }
+#else
     esp_lcd_touch_handle_t touch = (esp_lcd_touch_handle_t)drv->user_data;
     assert(touch);
 
@@ -141,6 +165,7 @@ static void lvgl_touch_cb(lv_indev_drv_t *drv, lv_indev_data_t *data)
     } else {
         data->state = LV_INDEV_STATE_RELEASED;
     }
+#endif
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -211,7 +236,13 @@ void app_main(void)
              user_cfg->vehicle_profile_idx, vehicle_profile_get_active()->name,
              stat->odometer_m, stat->trip_m, stat->max_speed_kmh, stat->avg_speed_kmh, stat->run_time_s);
 
-    /* 2. I2C bus init (used by the TCA9554 IO expander + CST816 touch on V1, CST816 touch only on V2/V3) */
+    /* 2. Board-specific display, touch, and power init */
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    if (!stopwatch_board_init()) {
+        ESP_LOGE(TAG, "StopWatch board initialization failed");
+        return;
+    }
+#else
     I2C_Init();
 
     /* 3. IO expander init (TCA9554PWR, I2C address 0x20) — V1 board only; V2/V3 have no expander */
@@ -229,6 +260,7 @@ void app_main(void)
     LCD_SetFlushCallback(notify_lvgl_flush_ready, &disp_drv);
     LCD_Backlight = 0;  // set to 0 before LCD_Init to prevent Backlight_Init from lighting an uninitialized panel
     LCD_Init();
+#endif
 
     /* 5. LVGL init */
     lv_init();
@@ -253,9 +285,13 @@ void app_main(void)
     disp_drv.hor_res = LCD_H_RES;
     disp_drv.ver_res = LCD_V_RES;
     disp_drv.flush_cb = lvgl_flush_cb;
+#if !CONFIG_OBD_HW_VERSION_M5STOPWATCH
     disp_drv.rounder_cb = lvgl_rounder_cb;
+#endif
     disp_drv.draw_buf = &disp_buf;
+#if !CONFIG_OBD_HW_VERSION_M5STOPWATCH
     disp_drv.user_data = panel_handle;      // from ST77916.h extern
+#endif
     lv_disp_t *disp = lv_disp_drv_register(&disp_drv);
 
     /* LVGL tick timer (2ms period) */
@@ -273,7 +309,9 @@ void app_main(void)
     indev_drv.type = LV_INDEV_TYPE_POINTER;
     indev_drv.disp = disp;
     indev_drv.read_cb = lvgl_touch_cb;
+#if !CONFIG_OBD_HW_VERSION_M5STOPWATCH
     indev_drv.user_data = tp;               // from CST816.h extern
+#endif
     lv_indev_drv_register(&indev_drv);
 
     /* 6. Start LVGL task */

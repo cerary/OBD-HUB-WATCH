@@ -20,9 +20,14 @@ static const char *TAG = "device_identity";
 #define OBD_GAUGE_BUILD_TAG "unknown-0-unknown"
 #endif
 
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+#define OBD_GAUGE_BOARD_NAME        "M5Stack StopWatch"
+#define OBD_GAUGE_LCD_NAME          "CO5300"
+#else
 #define OBD_GAUGE_BOARD_NAME        "Waveshare ESP32-S3-Touch-LCD-1.85"
-#define OBD_GAUGE_BOARD_VARIANT     "obd_brz_gauge"
 #define OBD_GAUGE_LCD_NAME          "ST77916"
+#endif
+#define OBD_GAUGE_BOARD_VARIANT     "obd_brz_gauge"
 #define OBD_GAUGE_FLASH_MB          16u
 #define OBD_GAUGE_PSRAM_MB          8u
 #define OBD_GAUGE_OTA_SLOTS         2u

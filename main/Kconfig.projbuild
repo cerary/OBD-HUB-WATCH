@@ -21,6 +21,9 @@ menu "OBD DSP Configuration"
 
         config OBD_HW_VERSION_V3_NEW
             bool "V3: New board B (ST77916 v2 init, direct GPIO, no TCA9554/ADS1115)"
+
+        config OBD_HW_VERSION_M5STOPWATCH
+            bool "M5Stack StopWatch (CO5300 AMOLED + CST820B touch)"
     endchoice
 
     config OBD_RS485_TX_GPIO

@@ -76,6 +76,25 @@ endif()
 string(REGEX REPLACE "[^A-Za-z0-9._-]" "_" OBD_GAUGE_GIT_BRANCH_SAFE "${OBD_GAUGE_GIT_BRANCH}")
 set(OBD_GAUGE_BUILD_TAG "${OBD_GAUGE_GIT_BRANCH_SAFE}-${OBD_GAUGE_GIT_COUNT}-${OBD_GAUGE_GIT_HASH}")
 
+set(OBD_BOARD_SOURCE_DIRS
+                    "bsp_obd_dsp/lcd_driver"
+                    "bsp_obd_dsp/lcd_driver/esp_lcd_st77916"
+                    "bsp_obd_dsp/exio"
+                    "bsp_obd_dsp/i2c_driver"
+                    "bsp_obd_dsp/touch_driver")
+# IDF reads component requirements before Kconfig has been evaluated. Discover
+# the optional sibling components by path here, not by CONFIG_*.
+set(OBD_BOARD_REQUIRES)
+if((DEFINED SDKCONFIG AND SDKCONFIG MATCHES "stopwatch" AND EXISTS "${OBD_MAIN_DIR}/../../M5GFX")
+   OR DEFINED ENV{STOPWATCH_DEPS_DIR})
+    set(OBD_BOARD_REQUIRES M5GFX M5PM1 M5IOE1 driver)
+endif()
+if(CONFIG_OBD_HW_VERSION_M5STOPWATCH)
+    # ADS1115 code is linked but never started on this board; retain its I2C
+    # helper symbols until the vehicle sensor module is split per board.
+    set(OBD_BOARD_SOURCE_DIRS "stopwatch" "bsp_obd_dsp/i2c_driver")
+endif()
+
 idf_component_register(SRC_DIRS
                     "."
                     "export_path/components"
@@ -86,11 +105,7 @@ idf_component_register(SRC_DIRS
                     "export_path"
                     "app_obd_dsp"
                     "bsp_obd_dsp"
-                    "bsp_obd_dsp/lcd_driver"
-                    "bsp_obd_dsp/lcd_driver/esp_lcd_st77916"
-                    "bsp_obd_dsp/exio"
-                    "bsp_obd_dsp/i2c_driver"
-                    "bsp_obd_dsp/touch_driver"
+                    ${OBD_BOARD_SOURCE_DIRS}
                     "theme_engine"
                     INCLUDE_DIRS
                     "."
@@ -102,7 +117,8 @@ idf_component_register(SRC_DIRS
                     mbedtls
                     nvs_flash
                     app_update
-                    json)
+                    json
+                    ${OBD_BOARD_REQUIRES})
 
 # Auto-generate the bootmedia SPIFFS image; flashed together via idf.py flash
 spiffs_create_partition_image(bootmedia ${OBD_MAIN_DIR}/../bootmedia/slot_a FLASH_IN_PROJECT)

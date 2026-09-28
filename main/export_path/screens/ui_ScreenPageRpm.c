@@ -21,8 +21,11 @@ void ui_ScreenPageRpm_screen_init(void)
     lv_obj_set_style_arc_width(ui_SpinnerRpmPage, 10, LV_PART_INDICATOR | LV_STATE_DEFAULT);
 
     ui_RpmPageArcRpmBack = lv_arc_create(ui_ScreenPageRpm);
-    lv_obj_set_width(ui_RpmPageArcRpmBack,340);
-    lv_obj_set_height(ui_RpmPageArcRpmBack,340);
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    lv_obj_set_size(ui_RpmPageArcRpmBack, 414, 414);
+#else
+    lv_obj_set_size(ui_RpmPageArcRpmBack, 340, 340);
+#endif
     lv_obj_set_align(ui_RpmPageArcRpmBack, LV_ALIGN_CENTER);
     lv_obj_clear_flag(ui_RpmPageArcRpmBack, LV_OBJ_FLAG_CLICKABLE);      /// Flags
     lv_arc_set_value(ui_RpmPageArcRpmBack, 0);
@@ -70,7 +73,11 @@ void ui_ScreenPageRpm_screen_init(void)
     lv_obj_set_width(ui_ImageRpmBlackEar, LV_SIZE_CONTENT);   /// 1
     lv_obj_set_height(ui_ImageRpmBlackEar, LV_SIZE_CONTENT);    /// 1
     lv_obj_set_x(ui_ImageRpmBlackEar, 0);
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    lv_obj_set_y(ui_ImageRpmBlackEar, -180);
+#else
     lv_obj_set_y(ui_ImageRpmBlackEar, -142);
+#endif
     lv_obj_set_align(ui_ImageRpmBlackEar, LV_ALIGN_CENTER);
     lv_obj_add_flag(ui_ImageRpmBlackEar, LV_OBJ_FLAG_ADV_HITTEST);     /// Flags
     lv_obj_clear_flag(ui_ImageRpmBlackEar, LV_OBJ_FLAG_SCROLLABLE);      /// Flags

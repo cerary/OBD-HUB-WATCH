@@ -30,8 +30,11 @@ void ui_ScreenPageGear_screen_init(void)
     lv_obj_set_style_text_font(ui_GearPageArcLabelGearNumText, &ui_font_FontTypoderSize140, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     ui_GearPageArcGearNumBack = lv_arc_create(ui_ScreenPageGear);
-    lv_obj_set_width(ui_GearPageArcGearNumBack,340);
-    lv_obj_set_height(ui_GearPageArcGearNumBack,340);
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    lv_obj_set_size(ui_GearPageArcGearNumBack, 414, 414);
+#else
+    lv_obj_set_size(ui_GearPageArcGearNumBack, 340, 340);
+#endif
     lv_obj_set_align(ui_GearPageArcGearNumBack, LV_ALIGN_CENTER);
     lv_obj_clear_flag(ui_GearPageArcGearNumBack, LV_OBJ_FLAG_CLICKABLE);      /// Flags
     lv_arc_set_value(ui_GearPageArcGearNumBack, 0);
@@ -54,7 +57,11 @@ void ui_ScreenPageGear_screen_init(void)
     lv_obj_set_width(ui_ImageGearBlackEar, LV_SIZE_CONTENT);   /// 1
     lv_obj_set_height(ui_ImageGearBlackEar, LV_SIZE_CONTENT);    /// 1
     lv_obj_set_x(ui_ImageGearBlackEar, 0);
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    lv_obj_set_y(ui_ImageGearBlackEar, -180);
+#else
     lv_obj_set_y(ui_ImageGearBlackEar, -142);
+#endif
     lv_obj_set_align(ui_ImageGearBlackEar, LV_ALIGN_CENTER);
     lv_obj_add_flag(ui_ImageGearBlackEar, LV_OBJ_FLAG_ADV_HITTEST);     /// Flags
     lv_obj_clear_flag(ui_ImageGearBlackEar, LV_OBJ_FLAG_SCROLLABLE);      /// Flags

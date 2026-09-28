@@ -353,13 +353,22 @@ lv_obj_t * ui_helpers_create_ring(lv_obj_t * parent, uint8_t border_width)
     if(th->ring_img) {
         lv_obj_t *ring = lv_img_create(parent);
         lv_img_set_src(ring, th->ring_img);
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+        // Scale the 360-pixel artwork into the 466-pixel round display.
+        lv_img_set_zoom(ring, 312);
+#endif
         lv_obj_set_align(ring, LV_ALIGN_CENTER);
         lv_obj_clear_flag(ring, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
         return ring;
     }
 
     lv_obj_t *ring = lv_obj_create(parent);
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    lv_obj_set_size(ring, 440, 440);
+    border_width = border_width == 8 ? 10 : 12;
+#else
     lv_obj_set_size(ring, 360, 360);
+#endif
     lv_obj_set_align(ring, LV_ALIGN_CENTER);
     lv_obj_clear_flag(ring, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_radius(ring, LV_RADIUS_CIRCLE, LV_PART_MAIN);

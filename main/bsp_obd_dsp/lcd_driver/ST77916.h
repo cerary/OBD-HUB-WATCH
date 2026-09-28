@@ -22,13 +22,20 @@
 #include "bsp_obd_dsp/exio/TCA9554PWR.h"
 
 
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+#define EXAMPLE_LCD_WIDTH                   (466)
+#define EXAMPLE_LCD_HEIGHT                  (466)
+#else
 #define EXAMPLE_LCD_WIDTH                   (360)
 #define EXAMPLE_LCD_HEIGHT                  (360)
+#endif
 #define EXAMPLE_LCD_COLOR_BITS              (16)
 
 #define ESP_PANEL_HOST_SPI_ID_DEFAULT       (SPI2_HOST)
 #define ESP_PANEL_LCD_SPI_MODE              (0)                   // 0/1/2/3, typically set to 0
-#if CONFIG_OBD_HW_VERSION_V2_NEW || CONFIG_OBD_HW_VERSION_V3_NEW
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+#define ESP_PANEL_LCD_SPI_CLK_HZ            (80 * 1000 * 1000)
+#elif CONFIG_OBD_HW_VERSION_V2_NEW || CONFIG_OBD_HW_VERSION_V3_NEW
 #define ESP_PANEL_LCD_SPI_CLK_HZ            (50 * 1000 * 1000)    // New panels: match reference driver (scr_st77916.h TFT_SPI_FREQ_HZ = 50MHz)
 #else
 #define ESP_PANEL_LCD_SPI_CLK_HZ            (80 * 1000 * 1000)    // Waveshare panel validated at 80MHz
@@ -39,7 +46,16 @@
 
 #define ESP_PANEL_LCD_SPI_IO_TE             (18)
 
-#if CONFIG_OBD_HW_VERSION_V2_NEW || CONFIG_OBD_HW_VERSION_V3_NEW
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+#define ESP_PANEL_LCD_SPI_IO_SCK            (40)
+#define ESP_PANEL_LCD_SPI_IO_DATA0          (41)
+#define ESP_PANEL_LCD_SPI_IO_DATA1          (42)
+#define ESP_PANEL_LCD_SPI_IO_DATA2          (46)
+#define ESP_PANEL_LCD_SPI_IO_DATA3          (45)
+#define ESP_PANEL_LCD_SPI_IO_CS             (39)
+#define EXAMPLE_LCD_PIN_NUM_RST             (-1)
+#define EXAMPLE_LCD_PIN_NUM_BK_LIGHT        (-1)
+#elif CONFIG_OBD_HW_VERSION_V2_NEW || CONFIG_OBD_HW_VERSION_V3_NEW
 /* New boards (V2/V3): same pins, only the ST77916 init sequence differs (v1/v2).
    LCD reset is a direct GPIO; no TCA9554 IO expander / ADS1115. */
 #define ESP_PANEL_LCD_SPI_IO_SCK            (9)
