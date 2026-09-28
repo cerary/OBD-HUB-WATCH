@@ -37,4 +37,28 @@ foreach ($name in @('M5PM1', 'M5IOE1')) {
         [System.IO.File]::WriteAllText($file, $source)
     }
 }
+
+# M5GFX 0.2.19 dereferences a failed DMA allocation in the AMOLED frame
+# buffer transfer. BLE can exhaust/fragment internal DMA heap after boot.
+$amoledFile = Join-Path $parent 'M5GFX\src\lgfx\v1\panel\Panel_AMOLED.cpp'
+$amoled = Get-Content -LiteralPath $amoledFile -Raw
+if ($amoled -notmatch 'Send the PSRAM row through the SPI') {
+    $old = '                auto lb = buf[i & 1];//s->getDMABuffer(wb);' + "`n" +
+        '                memcpy(lb,  &_frame_buffer[fbpos], wb);' + "`n" +
+        '                fbpos += stride; // next line' + "`n" +
+        '                bus->writeBytes(lb, wb, false, true);'
+    $new = '                auto lb = buf[i & 1];//s->getDMABuffer(wb);' + "`n" +
+        '                if (lb)' + "`n" +
+        '                {' + "`n" +
+        '                    memcpy(lb, &_frame_buffer[fbpos], wb);' + "`n" +
+        '                }' + "`n" +
+        '                fbpos += stride; // next line' + "`n" +
+        '                // The SPI flip buffers can fail to resize when BLE fragments' + "`n" +
+        '                // internal DMA memory. Send the PSRAM row through the SPI' + "`n" +
+        '                // register path instead of dereferencing a null buffer.' + "`n" +
+        '                bus->writeBytes(lb ? lb : &_frame_buffer[fbpos - stride], wb, false, lb != nullptr);'
+    $normalized = $amoled.Replace("`r`n", "`n")
+    if (-not $normalized.Contains($old)) { throw "Unexpected AMOLED transfer code in $amoledFile" }
+    [System.IO.File]::WriteAllText($amoledFile, $normalized.Replace($old, $new))
+}
 Write-Host 'StopWatch dependencies ready.'

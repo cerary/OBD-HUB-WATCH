@@ -120,8 +120,22 @@ idf_component_register(SRC_DIRS
                     json
                     ${OBD_BOARD_REQUIRES})
 
-# Auto-generate the bootmedia SPIFFS image; flashed together via idf.py flash
-spiffs_create_partition_image(bootmedia ${OBD_MAIN_DIR}/../bootmedia/slot_a FLASH_IN_PROJECT)
+# Firmware reads bootmedia as a raw manifest at 0x0000 and media at 0x1000.
+set(OBD_BOOTMEDIA_DIR ${OBD_MAIN_DIR}/../bootmedia/slot_a)
+set(OBD_BOOTMEDIA_IMAGE ${CMAKE_BINARY_DIR}/bootmedia.bin)
+partition_table_get_partition_info(OBD_BOOTMEDIA_SIZE "--partition-name bootmedia" "size")
+add_custom_command(OUTPUT ${OBD_BOOTMEDIA_IMAGE}
+    COMMAND ${PYTHON} ${OBD_MAIN_DIR}/../tools/pack_bootmedia_raw.py
+        ${OBD_BOOTMEDIA_DIR}/boot_block.txt
+        ${OBD_BOOTMEDIA_DIR}/boot_block.bin
+        ${OBD_BOOTMEDIA_IMAGE}
+        --partition-size ${OBD_BOOTMEDIA_SIZE}
+    DEPENDS ${OBD_BOOTMEDIA_DIR}/boot_block.txt
+            ${OBD_BOOTMEDIA_DIR}/boot_block.bin
+            ${OBD_MAIN_DIR}/../tools/pack_bootmedia_raw.py)
+add_custom_target(bootmedia_raw_bin ALL DEPENDS ${OBD_BOOTMEDIA_IMAGE})
+esptool_py_flash_to_partition(flash bootmedia "${OBD_BOOTMEDIA_IMAGE}")
+add_dependencies(flash bootmedia_raw_bin)
 
 target_compile_definitions(${COMPONENT_LIB} PRIVATE
     OBD_GAUGE_GIT_HASH="${OBD_GAUGE_GIT_HASH}"

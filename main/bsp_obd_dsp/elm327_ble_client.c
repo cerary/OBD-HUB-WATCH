@@ -1548,7 +1548,8 @@ static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param
                         }
                     }
                     if (!exists) {
-                        strncpy(s_scan_list[s_scan_count].name, dev_name, 31);
+                        memcpy(s_scan_list[s_scan_count].name, dev_name,
+                               sizeof(s_scan_list[s_scan_count].name));
                         memcpy(s_scan_list[s_scan_count].addr, pr->scan_rst.bda, 6);
                         s_scan_list[s_scan_count].rssi = pr->scan_rst.rssi;
                         s_scan_count++;

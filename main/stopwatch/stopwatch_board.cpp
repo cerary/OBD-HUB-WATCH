@@ -12,6 +12,7 @@
 #include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <sdkconfig.h>
 
 namespace {
 constexpr char TAG[] = "stopwatch";
@@ -143,12 +144,23 @@ extern "C" void stopwatch_board_flush(int x, int y, int width, int height,
     // centered circle, leaving one panel pixel on each side.
     display.startWrite();
     display.setAddrWindow(x + 1, y, width, height);
-    const auto *src = reinterpret_cast<const lgfx::rgb565_t *>(pixels);
     uint32_t count = static_cast<uint32_t>(width) * height;
+    uint32_t offset = 0;
+#if CONFIG_LV_COLOR_16_SWAP
+    // The Waveshare panel expects LVGL's byte-swapped RGB565 stream. M5GFX's
+    // frame buffer expects native RGB565 words, so convert each strip here.
+    static uint16_t native_pixels[1024];
+#endif
     while (count) {
-        uint32_t chunk = count > 8192 ? 8192 : count;
-        display.writePixels(src, chunk);
-        src += chunk;
+        uint32_t chunk = count > 1024 ? 1024 : count;
+#if CONFIG_LV_COLOR_16_SWAP
+        for (uint32_t i = 0; i < chunk; ++i)
+            native_pixels[i] = __builtin_bswap16(pixels[offset + i]);
+        display.writePixels(reinterpret_cast<const lgfx::rgb565_t *>(native_pixels), chunk);
+#else
+        display.writePixels(reinterpret_cast<const lgfx::rgb565_t *>(pixels + offset), chunk);
+#endif
+        offset += chunk;
         count -= chunk;
     }
     display.endWrite();

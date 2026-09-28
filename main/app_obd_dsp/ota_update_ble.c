@@ -607,7 +607,7 @@ static esp_err_t ota_begin_transfer(const uint8_t *packet, uint16_t len)
     memset(&s_state, 0, sizeof(s_state));
     s_state.expected_size = expected_size;
     memcpy(s_state.expected_sha, expected_sha, sizeof(s_state.expected_sha));
-    strncpy(s_state.filename, filename, sizeof(s_state.filename) - 1);
+    memcpy(s_state.filename, filename, filename_len + 1);
     s_state.kind = (target == 1) ? OTA_KIND_FIRMWARE : (target == 2 ? OTA_KIND_BOOTMEDIA : OTA_KIND_IDLE);
     s_state.stage = OTA_STAGE_RECEIVING;
 

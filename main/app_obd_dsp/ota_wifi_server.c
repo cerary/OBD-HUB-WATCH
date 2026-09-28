@@ -1674,8 +1674,9 @@ bool ota_wifi_server_start(ota_wifi_info_t *info, ota_wifi_status_cb_t callback)
         .pmf_cfg = { .required = false },
         },
     };
-    strncpy((char *)wifi_config.ap.ssid, s_ap_ssid, sizeof(wifi_config.ap.ssid) - 1);
-    wifi_config.ap.ssid_len = strlen(s_ap_ssid);
+    size_t ap_ssid_len = strnlen(s_ap_ssid, sizeof(wifi_config.ap.ssid));
+    memcpy(wifi_config.ap.ssid, s_ap_ssid, ap_ssid_len);
+    wifi_config.ap.ssid_len = ap_ssid_len;
     strncpy((char *)wifi_config.ap.password, s_password, sizeof(wifi_config.ap.password) - 1);
 
     err = esp_wifi_set_mode(target_mode);
@@ -1883,10 +1884,10 @@ bool ota_wifi_server_start(ota_wifi_info_t *info, ota_wifi_status_cb_t callback)
     httpd_register_uri_handler(s_httpd, &theme_opt_uri);
 
     // 填充 info
-    strncpy(info->ssid, s_ap_ssid, sizeof(info->ssid) - 1);
-    strncpy(info->password, s_password, sizeof(info->password) - 1);
+    memcpy(info->ssid, s_ap_ssid, sizeof(info->ssid));
+    memcpy(info->password, s_password, sizeof(info->password));
     strncpy(info->ip, "192.168.4.1", sizeof(info->ip) - 1);
-    strncpy(info->token, s_token, sizeof(info->token) - 1);
+    memcpy(info->token, s_token, sizeof(info->token));
     info->port = WIFI_PORT;
 
     // The caller sends the single final wifi-ready BLE notification after
