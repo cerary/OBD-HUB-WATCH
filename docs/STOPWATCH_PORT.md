@@ -12,10 +12,22 @@ StopWatch UserDemo. The desktop project root is
 - CO5300 display and CST820 touch work. The user has verified page navigation,
   one tap per page change, the shared 452-pixel white bezel ring, and BLE SCAN
   layout. The previous full application was stable while idle.
-- The new layout pass enlarges the needle speed dial, reflows TEMP and INFO,
-  enlarges RPM and speed arcs, and adds a compact MINI badge. SETTINGS offers
-  a saved JCW or GP visual badge choice, independent of the vehicle profile.
-  The badge is drawn in LVGL; it is a stylized wordmark, not an OEM bitmap.
+- The layout pass enlarges the needle speed dial, reflows TEMP and INFO,
+  and enlarges RPM and speed arcs. MINI emblems now follow the selected vehicle:
+  `JCW F56 8AT` displays the F56-era JCW emblem and `GP3 F56 8AT` displays the
+  original GP3 grille badge silhouette. The independent MINI LOGO setting was
+  removed. Other vehicle profiles show the SKY GAUGE project name.
+- The F56 JCW 8AT and GP3 8AT profiles use MINI's published 8-speed ratios and
+  2.955 final drive. GP3 was appended to preserve saved profile indices. Gear
+  detection and actual OBD data still need validation on the user's car.
+- Badge source: MINI Spain's F56 JCW GP page provides the original
+  `jcw_logo.svg`, archived as `docs/mini_jcw_f56_source.svg`. The GP3 badge
+  is a flat red silhouette extracted from the genuine MINI GP3 front grille
+  part 51139481307 photo. Both are embedded as RGB565A8 LVGL images.
+  Sources: https://www.mini.es/es_ES/home/range/mini-jcw-gp.html and
+  https://www.outmotoring.com/front-bumper-upper-grill-trim-mini-jcw-gp3-51139481307.html
+- Drivetrain source: MINI's 2021 3 Door Product Guide, pages 1-2:
+  https://www.press.bmwgroup.com/canada/article/attachment/T0305951EN/446631
 - The first layout build rebooted because the double 40-line DMA draw buffers
   exhausted internal RAM when ESP-NOW initialized Wi-Fi. On StopWatch, the
   second build uses double 20-line buffers. The boot log then showed 88,323

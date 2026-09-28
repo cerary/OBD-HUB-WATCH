@@ -222,13 +222,13 @@ static const vehicle_profile_t s_profiles[] = {
         .poll_gap_ms = 1,
     },
     {
-        // MINI John Cooper Works F56 (BMW B48 2.0T, FWD transverse)
-        .name = "JCW F56",
-        .final_drive_ratio = 3.824f,       // F56 JCW 6MT final drive ratio
+        // MINI John Cooper Works F56 8AT (BMW B48 2.0T, FWD transverse)
+        .name = "JCW F56 8AT",
+        .final_drive_ratio = 2.955f,       // MINI 2021 technical data: 8AT final drive
         .tire_rolling_radius_m = 0.308f,   // Front wheels (FWD drive wheels) 205/45R17
-        .gear_count = 6,
-        .gear_ratios = {0, 3.923f, 2.136f, 1.276f, 0.921f, 0.756f, 0.628f},
-        .gear_tolerance = 0.15f,
+        .gear_count = 8,
+        .gear_ratios = {0, 5.519f, 3.184f, 2.050f, 1.492f, 1.235f, 1.000f, 0.801f, 0.673f},
+        .gear_tolerance = 0.08f,
         .oil_temp_strategy = {
             // Boost pressure uses standard PID 010B (has_boost), no extra adaptation needed.
             // Oil temp: MINI/BMW enhanced Mode 22 PID 5822, °C = A-60 (community verified, same monitor as N18/N16/B48);
@@ -385,6 +385,22 @@ static const vehicle_profile_t s_profiles[] = {
         .obd_functional_addr = true,       // use functional broadcast, not physical ECU address
         .obd_29bit_functional = true,      // 29-bit functional broadcast address (18DB33F1, not 7DF)
         .obd_timeout = 0x19,               // default timeout; adjust if responses are slow
+    },
+    {
+        // MINI John Cooper Works GP3 F56: factory 8AT and 225/35R18 tyres.
+        // Append only: existing NVS vehicle indices must not change.
+        .name = "GP3 F56 8AT",
+        .final_drive_ratio = 2.955f,
+        .tire_rolling_radius_m = 0.307f,
+        .gear_count = 8,
+        .gear_ratios = {0, 5.519f, 3.184f, 2.050f, 1.492f, 1.235f, 1.000f, 0.801f, 0.673f},
+        .gear_tolerance = 0.08f,
+        .oil_temp_strategy = {
+            .primary = OIL_TEMP_MODE_MINI_22_5822,
+            .secondary = OIL_TEMP_MODE_PID_5C,
+            .tertiary = OIL_TEMP_MODE_NONE,
+        },
+        .has_boost = true,
     },
 };
 

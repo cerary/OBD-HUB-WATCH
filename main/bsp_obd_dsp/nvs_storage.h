@@ -58,9 +58,6 @@ esp_err_t nvs_storage_init(void);
 const nvs_user_cfg_t * nvs_cfg_get(void);
 esp_err_t nvs_cfg_set(const nvs_user_cfg_t *cfg);
 
-// StopWatch MINI badge: 0=JCW, 1=GP. Stored separately to preserve the cfg blob layout.
-uint8_t nvs_brand_logo_get(void);
-esp_err_t nvs_brand_logo_set(uint8_t logo);
 
 // Per-item alarm threshold for the chart page (raw units; value>=threshold alarms; 32767=off). item = disp_item_t value.
 int16_t nvs_chart_alarm_get(uint8_t item);

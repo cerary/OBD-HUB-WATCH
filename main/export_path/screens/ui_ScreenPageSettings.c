@@ -21,13 +21,17 @@ static lv_obj_t *s_roller_page = NULL;
 static lv_obj_t *s_roller_vehicle = NULL;
 static lv_obj_t *s_roller_theme = NULL;
 #if CONFIG_OBD_HW_VERSION_M5STOPWATCH
-static lv_obj_t *s_roller_brand = NULL;
+static lv_timer_t *s_vehicle_restart_timer = NULL;
 #endif
 static lv_obj_t *s_slider_bright = NULL;
 static lv_obj_t *s_label_bright_val = NULL;
 static lv_obj_t *s_btn_rc = NULL;
 static lv_obj_t *s_label_rc = NULL;
 static bool s_rc_enabled = false;
+
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+static void restart_after_vehicle_change(lv_timer_t *timer);
+#endif
 
 // Callbacks
 static void on_page_roller_change(lv_event_t *e)
@@ -70,6 +74,15 @@ static void on_vehicle_roller_change(lv_event_t *e)
     nvs_cfg_set(&cfg);
     // Apply immediately so gear detection etc. picks it up without reboot.
     vehicle_profile_set_active(selected);
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    // Wait until roller motion settles so a swipe can reach the intended row.
+    if (!s_vehicle_restart_timer) {
+        s_vehicle_restart_timer = lv_timer_create(restart_after_vehicle_change, 900, NULL);
+        lv_timer_set_repeat_count(s_vehicle_restart_timer, 1);
+    } else {
+        lv_timer_reset(s_vehicle_restart_timer);
+    }
+#endif
 }
 
 // Theme change: persist the selection, then reboot so every screen rebuilds
@@ -82,11 +95,10 @@ static void on_theme_roller_change(lv_event_t *e)
 }
 
 #if CONFIG_OBD_HW_VERSION_M5STOPWATCH
-static void on_brand_roller_change(lv_event_t *e)
+static void restart_after_vehicle_change(lv_timer_t *timer)
 {
-    LV_UNUSED(e);
-    uint8_t selected = (uint8_t)lv_roller_get_selected(s_roller_brand);
-    if (nvs_brand_logo_set(selected) == ESP_OK) esp_restart();
+    LV_UNUSED(timer);
+    esp_restart();  // screens and their vehicle emblems are created once at boot
 }
 #endif
 
@@ -150,7 +162,7 @@ void ui_ScreenPageSettings_screen_init(void)
     // Build vehicle options dynamically from the profile table (newline separated).
     uint8_t vehicle_count = 0;
     const vehicle_profile_t *vehicle_list = vehicle_profile_get_all(&vehicle_count);
-    char vehicle_names[160] = {0};
+    char vehicle_names[320] = {0};
     for (uint8_t i = 0; i < vehicle_count; i++) {
         if (i > 0) strlcat(vehicle_names, "\n", sizeof(vehicle_names));
         strlcat(vehicle_names, vehicle_list[i].name, sizeof(vehicle_names));
@@ -173,11 +185,7 @@ void ui_ScreenPageSettings_screen_init(void)
     lv_label_set_text(label_theme, "THEME");
     lv_obj_set_style_text_font(label_theme, &ui_font_FontTypoderSize16, LV_PART_MAIN);
     lv_obj_set_style_text_color(label_theme, ui_theme_color_lv(UI_COLOR_TEXT_SECONDARY), LV_PART_MAIN);
-#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
-    lv_obj_align(label_theme, LV_ALIGN_CENTER, -85, -4);
-#else
     lv_obj_align(label_theme, LV_ALIGN_CENTER, 0, -4);
-#endif
 
     // Theme options come from the generated registry, joined into an exactly
     // sized buffer — a fixed local array here used to silently truncate the
@@ -190,39 +198,11 @@ void ui_ScreenPageSettings_screen_init(void)
     lv_roller_set_options(s_roller_theme, ui_theme_names_joined(), LV_ROLLER_MODE_NORMAL);
     lv_roller_set_visible_row_count(s_roller_theme, 1);
     lv_roller_set_selected(s_roller_theme, (cfg->theme_cfg.theme < theme_count) ? cfg->theme_cfg.theme : 0, LV_ANIM_OFF);
-#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
-    lv_obj_set_width(s_roller_theme, 145);
-#else
     lv_obj_set_width(s_roller_theme, 160);
-#endif
     lv_obj_set_height(s_roller_theme, 30);   // explicit: font is applied by style_dark_roller below
     ui_helpers_style_dark_roller(s_roller_theme, &ui_font_FontTypoderSize20);
-#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
-    lv_obj_align(s_roller_theme, LV_ALIGN_CENTER, -85, 22);
-#else
     lv_obj_align(s_roller_theme, LV_ALIGN_CENTER, 0, 22);
-#endif
     lv_obj_add_event_cb(s_roller_theme, on_theme_roller_change, LV_EVENT_VALUE_CHANGED, NULL);
-
-#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
-    // Visual badge selection is independent of the vehicle's OBD profile.
-    lv_obj_t *label_brand = lv_label_create(ui_ScreenPageSettings);
-    lv_label_set_text(label_brand, "MINI LOGO");
-    lv_obj_set_style_text_font(label_brand, &ui_font_FontTypoderSize16, LV_PART_MAIN);
-    lv_obj_set_style_text_color(label_brand, ui_theme_color_lv(UI_COLOR_TEXT_SECONDARY), LV_PART_MAIN);
-    lv_obj_align(label_brand, LV_ALIGN_CENTER, 85, -4);
-
-    s_roller_brand = lv_roller_create(ui_ScreenPageSettings);
-    lv_obj_set_style_clip_corner(s_roller_brand, true, 0);
-    lv_obj_clear_flag(s_roller_brand, LV_OBJ_FLAG_GESTURE_BUBBLE);
-    lv_roller_set_options(s_roller_brand, "JCW\nGP", LV_ROLLER_MODE_NORMAL);
-    lv_roller_set_visible_row_count(s_roller_brand, 1);
-    lv_roller_set_selected(s_roller_brand, nvs_brand_logo_get(), LV_ANIM_OFF);
-    lv_obj_set_size(s_roller_brand, 90, 30);
-    ui_helpers_style_dark_roller(s_roller_brand, &ui_font_FontTypoderSize20);
-    lv_obj_align(s_roller_brand, LV_ALIGN_CENTER, 85, 22);
-    lv_obj_add_event_cb(s_roller_brand, on_brand_roller_change, LV_EVENT_VALUE_CHANGED, NULL);
-#endif
 
     // ====== Row 4: Brightness ======
     lv_obj_t *label_bright = lv_label_create(ui_ScreenPageSettings);

@@ -17,7 +17,6 @@
 #define CHART_ALARM_N         12   // = DISP_ITEM_COUNT (must stay in sync with disp_item_t in ui.c)
 #define CHART_ALARM_OFF       32767 // "off" sentinel for alarm thresholds (unreachable, avoids false alarms)
 #define KEY_MG_EXTRA          "mgextra"   // multi-gauge boot animation settings
-#define KEY_BRAND_LOGO        "brandlogo" // StopWatch display badge only
 #define KEY_CFG_VERSION       "cfgver"    // config version (missing = v0)
 #define CFG_VERSION_CURRENT   3           // current version; bump on field add/semantic change (migration in nvs_storage_init)
 
@@ -36,7 +35,6 @@ static nvs_user_cfg_t s_cfg =   {
                         .rpm_warn_anim_en = 0,
                         .rpm_warn_linked_en = 0,
                     };
-static uint8_t s_brand_logo = 0;  // JCW by default; GP is selected in SETTINGS
 static nvs_stat_t     s_stat = {0};   // runtime-only stats, not persisted (reset every boot to save flash)
 static SemaphoreHandle_t s_mux;
 
@@ -71,14 +69,6 @@ esp_err_t nvs_storage_init(void)
     ESP_ERROR_CHECK(err);
 
     load_blob(NS_CFG, KEY_CFG, &s_cfg, sizeof(s_cfg));
-    {
-        nvs_handle_t h;
-        if (nvs_open(NS_CFG, NVS_READONLY, &h) == ESP_OK) {
-            (void)nvs_get_u8(h, KEY_BRAND_LOGO, &s_brand_logo);
-            nvs_close(h);
-        }
-        if (s_brand_logo > 1) s_brand_logo = 0;
-    }
 
     // Mileage/trip stats are no longer persisted (see s_stat declaration); stay {0} and start fresh each boot.
     {   // Chart alarm thresholds: load if present in NVS; otherwise keep static defaults (don't overwrite to 0).
@@ -193,22 +183,6 @@ esp_err_t nvs_cfg_set(const nvs_user_cfg_t *cfg)
     if(memcmp(cfg,&s_cfg,sizeof(s_cfg))==0) return ESP_OK;
     s_cfg=*cfg;
     return save_blob(NS_CFG, KEY_CFG, &s_cfg, sizeof(s_cfg));
-}
-
-uint8_t nvs_brand_logo_get(void) { return s_brand_logo; }
-
-esp_err_t nvs_brand_logo_set(uint8_t logo)
-{
-    if (logo > 1) return ESP_ERR_INVALID_ARG;
-    if (logo == s_brand_logo) return ESP_OK;
-    nvs_handle_t h;
-    esp_err_t err = nvs_open(NS_CFG, NVS_READWRITE, &h);
-    if (err != ESP_OK) return err;
-    err = nvs_set_u8(h, KEY_BRAND_LOGO, logo);
-    if (err == ESP_OK) err = nvs_commit(h);
-    nvs_close(h);
-    if (err == ESP_OK) s_brand_logo = logo;
-    return err;
 }
 
 /* Chart alarm thresholds */

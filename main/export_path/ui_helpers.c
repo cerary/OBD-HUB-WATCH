@@ -6,6 +6,8 @@
 #include "ui_helpers.h"
 #include "ui_theme.h"
 #include "bsp_obd_dsp/nvs_storage.h"
+#include "app_obd_dsp/vehicle_profiles.h"
+#include <string.h>
 #if CONFIG_OBD_HW_VERSION_M5STOPWATCH
 #include "esp_heap_caps.h"
 #endif
@@ -458,48 +460,49 @@ lv_obj_t * ui_helpers_create_ring(lv_obj_t * parent, uint8_t border_width)
     return ring;
 }
 
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+LV_IMG_DECLARE(ui_img_mini_jcw);
+LV_IMG_DECLARE(ui_img_mini_gp3);
+
+static bool vehicle_is_gp3(void)
+{
+    return strcmp(vehicle_profile_get_active()->name, "GP3 F56 8AT") == 0;
+}
+
+static bool vehicle_is_jcw(void)
+{
+    return strcmp(vehicle_profile_get_active()->name, "JCW F56 8AT") == 0;
+}
+#endif
+
 lv_color_t ui_helpers_brand_accent_color(void)
 {
-    return lv_color_hex(nvs_brand_logo_get() == 1 ? 0xEF4035 : 0xF05A28);
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    if (vehicle_is_gp3()) return lv_color_hex(0xE62E27);
+#endif
+    return lv_color_hex(0xF05A28);
 }
 
 lv_obj_t * ui_helpers_create_mini_brand(lv_obj_t *parent, lv_coord_t center_y, bool large)
 {
-    const bool gp = nvs_brand_logo_get() == 1;
-    const lv_coord_t w = large ? 228 : 126;
-    const lv_coord_t h = large ? 68 : 42;
-    const lv_coord_t bar_x = large ? 88 : 49;
-    const lv_coord_t bar_w = large ? 19 : 10;
-    lv_color_t accent = ui_helpers_brand_accent_color();
-
-    lv_obj_t *badge = lv_obj_create(parent);
-    lv_obj_remove_style_all(badge);
-    lv_obj_set_size(badge, w, h);
-    lv_obj_align(badge, LV_ALIGN_CENTER, 0, center_y);
-    lv_obj_set_style_radius(badge, LV_RADIUS_CIRCLE, LV_PART_MAIN);
-    lv_obj_set_style_border_width(badge, large ? 2 : 1, LV_PART_MAIN);
-    lv_obj_set_style_border_color(badge, lv_color_hex(0x777777), LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(badge, LV_OPA_TRANSP, LV_PART_MAIN);
-    lv_obj_clear_flag(badge, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
-
-    for (int side = -1; side <= 1; side += 2) {
-        for (int row = -1; row <= 1; row += 2) {
-            lv_obj_t *bar = lv_obj_create(badge);
-            lv_obj_remove_style_all(bar);
-            lv_obj_set_size(bar, bar_w, large ? 5 : 3);
-            lv_obj_align(bar, LV_ALIGN_CENTER, side * bar_x, row * (large ? 7 : 5));
-            lv_obj_set_style_bg_color(bar, accent, LV_PART_MAIN);
-            lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, LV_PART_MAIN);
-            lv_obj_clear_flag(bar, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
-        }
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    if (vehicle_is_gp3() || vehicle_is_jcw()) {
+        lv_obj_t *logo = lv_img_create(parent);
+        lv_img_set_src(logo, vehicle_is_gp3() ? &ui_img_mini_gp3 : &ui_img_mini_jcw);
+        lv_img_set_zoom(logo, large ? 256 : 128);
+        lv_obj_align(logo, LV_ALIGN_CENTER, 0, center_y);
+        lv_obj_clear_flag(logo, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+        return logo;
     }
-
-    lv_obj_t *wordmark = lv_label_create(badge);
-    lv_label_set_text(wordmark, gp ? "GP" : "JCW");
-    lv_obj_set_style_text_font(wordmark, large ? &ui_font_FontTypoderSize56 : &ui_font_FontTypoderSize24, LV_PART_MAIN);
-    lv_obj_set_style_text_color(wordmark, gp ? accent : ui_theme_color_lv(UI_COLOR_TEXT_PRIMARY), LV_PART_MAIN);
-    lv_obj_center(wordmark);
-    return badge;
+#endif
+    // Other vehicle profiles have no MINI identity. Use the project name.
+    lv_obj_t *label = lv_label_create(parent);
+    lv_label_set_text(label, "SKY GAUGE");
+    lv_obj_set_style_text_font(label, large ? &ui_font_FontTypoderSize36 : &ui_font_FontTypoderSize16, LV_PART_MAIN);
+    lv_obj_set_style_text_color(label, ui_theme_color_lv(UI_COLOR_TEXT_PRIMARY), LV_PART_MAIN);
+    lv_obj_align(label, LV_ALIGN_CENTER, 0, center_y);
+    lv_obj_clear_flag(label, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+    return label;
 }
 
 void ui_helpers_style_screen_bg(lv_obj_t * scr)

@@ -224,7 +224,13 @@ static const vehicle_override_t s_vehicle_overrides[] = {
         .uds_header_cmd  = "ATSH6F1\r",
     },
     {
-        .match_name      = "JCW F56",
+        .match_name      = "JCW F56 8AT",
+        .oil_primary     = &oil_mini_5822,
+        .oil_secondary   = &oil_std_5c,
+        .has_boost       = true,
+    },
+    {
+        .match_name      = "GP3 F56 8AT",
         .oil_primary     = &oil_mini_5822,
         .oil_secondary   = &oil_std_5c,
         .has_boost       = true,
