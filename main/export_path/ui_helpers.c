@@ -354,8 +354,8 @@ lv_obj_t * ui_helpers_create_ring(lv_obj_t * parent, uint8_t border_width)
         lv_obj_t *ring = lv_img_create(parent);
         lv_img_set_src(ring, th->ring_img);
 #if CONFIG_OBD_HW_VERSION_M5STOPWATCH
-        // Scale the 360-pixel artwork into the 466-pixel round display.
-        lv_img_set_zoom(ring, 312);
+        // Match the drawn 452-pixel ring while preserving a 7-pixel edge gap.
+        lv_img_set_zoom(ring, 321);
 #endif
         lv_obj_set_align(ring, LV_ALIGN_CENTER);
         lv_obj_clear_flag(ring, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
@@ -364,7 +364,7 @@ lv_obj_t * ui_helpers_create_ring(lv_obj_t * parent, uint8_t border_width)
 
     lv_obj_t *ring = lv_obj_create(parent);
 #if CONFIG_OBD_HW_VERSION_M5STOPWATCH
-    lv_obj_set_size(ring, 440, 440);
+    lv_obj_set_size(ring, 452, 452);
     border_width = border_width == 8 ? 10 : 12;
 #else
     lv_obj_set_size(ring, 360, 360);
@@ -383,6 +383,14 @@ lv_obj_t * ui_helpers_create_ring(lv_obj_t * parent, uint8_t border_width)
 void ui_helpers_style_screen_bg(lv_obj_t * scr)
 {
     const ui_theme_t *th = ui_theme_active();
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    // The panel has its own round mask. A rounded LVGL root leaves a thin
+    // antialiased seam at the edge and does not clear pixels outside it when
+    // changing pages. Paint the full square canvas black instead.
+    lv_obj_set_style_radius(scr, 0, LV_PART_MAIN);
+    lv_obj_set_style_border_width(scr, 0, LV_PART_MAIN);
+    lv_obj_set_style_outline_width(scr, 0, LV_PART_MAIN);
+#endif
     lv_obj_set_style_bg_color(scr, ui_theme_color_lv(UI_COLOR_BG),
                               LV_PART_MAIN | LV_STATE_DEFAULT);
     // Always assign, NULL included: screens are reused and the RPM warning
