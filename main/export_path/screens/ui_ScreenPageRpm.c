@@ -29,14 +29,24 @@ void ui_ScreenPageRpm_screen_init(void)
     lv_obj_set_align(ui_RpmPageArcRpmBack, LV_ALIGN_CENTER);
     lv_obj_clear_flag(ui_RpmPageArcRpmBack, LV_OBJ_FLAG_CLICKABLE);      /// Flags
     lv_arc_set_value(ui_RpmPageArcRpmBack, 0);
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    // Use the full dial diameter while leaving a clear gap below the readout.
+    lv_arc_set_bg_angles(ui_RpmPageArcRpmBack, 0, 270);
+    lv_arc_set_rotation(ui_RpmPageArcRpmBack, 135);
+#else
     lv_arc_set_bg_angles(ui_RpmPageArcRpmBack, 0, 360);
     lv_arc_set_rotation(ui_RpmPageArcRpmBack, 90);
+#endif
     lv_obj_set_style_arc_color(ui_RpmPageArcRpmBack, ui_theme_color_lv(UI_COLOR_ARC_TRACK), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_arc_opa(ui_RpmPageArcRpmBack, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_arc_width(ui_RpmPageArcRpmBack, 20, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_arc_rounded(ui_RpmPageArcRpmBack, false, LV_PART_MAIN | LV_STATE_DEFAULT);
 
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    lv_obj_set_style_arc_color(ui_RpmPageArcRpmBack, ui_helpers_brand_accent_color(), LV_PART_INDICATOR | LV_STATE_DEFAULT);
+#else
     lv_obj_set_style_arc_color(ui_RpmPageArcRpmBack, ui_theme_color_lv(UI_COLOR_ARC_INDICATOR), LV_PART_INDICATOR | LV_STATE_DEFAULT);
+#endif
     lv_obj_set_style_arc_opa(ui_RpmPageArcRpmBack, 255, LV_PART_INDICATOR | LV_STATE_DEFAULT);
     lv_obj_set_style_arc_width(ui_RpmPageArcRpmBack, 20, LV_PART_INDICATOR | LV_STATE_DEFAULT);
     lv_obj_set_style_arc_rounded(ui_RpmPageArcRpmBack, false, LV_PART_INDICATOR | LV_STATE_DEFAULT);
@@ -45,28 +55,49 @@ void ui_ScreenPageRpm_screen_init(void)
     lv_obj_set_style_bg_opa(ui_RpmPageArcRpmBack, 0, LV_PART_KNOB | LV_STATE_DEFAULT);
 
     ui_RpmPageArcLabelRpmText = lv_label_create(ui_ScreenPageRpm);
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    lv_obj_set_width(ui_RpmPageArcLabelRpmText, 380);
+#else
     lv_obj_set_width(ui_RpmPageArcLabelRpmText, 300);
+#endif
     lv_obj_set_height(ui_RpmPageArcLabelRpmText, LV_SIZE_CONTENT);    /// 60
     lv_obj_set_x(ui_RpmPageArcLabelRpmText, 0);
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    lv_obj_set_y(ui_RpmPageArcLabelRpmText, -4);
+#else
     lv_obj_set_y(ui_RpmPageArcLabelRpmText, -10);
+#endif
     lv_obj_set_align(ui_RpmPageArcLabelRpmText, LV_ALIGN_CENTER);
     lv_label_set_long_mode(ui_RpmPageArcLabelRpmText, LV_LABEL_LONG_CLIP);
     lv_label_set_text(ui_RpmPageArcLabelRpmText, "0");
     lv_obj_set_style_text_align(ui_RpmPageArcLabelRpmText, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_color(ui_RpmPageArcLabelRpmText, ui_theme_color_lv(UI_COLOR_TEXT_PRIMARY), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_opa(ui_RpmPageArcLabelRpmText, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    lv_obj_set_style_text_font(ui_RpmPageArcLabelRpmText, &ui_font_FontTypoderSize140, LV_PART_MAIN | LV_STATE_DEFAULT);
+#else
     lv_obj_set_style_text_font(ui_RpmPageArcLabelRpmText, &ui_font_FontTypoderSize56, LV_PART_MAIN | LV_STATE_DEFAULT);
+#endif
 
     ui_RpmPageArcLabelRpmUnit = lv_label_create(ui_ScreenPageRpm);
     lv_obj_set_width(ui_RpmPageArcLabelRpmUnit, LV_SIZE_CONTENT);   /// 60
     lv_obj_set_height(ui_RpmPageArcLabelRpmUnit, LV_SIZE_CONTENT);    /// 60
     lv_obj_set_x(ui_RpmPageArcLabelRpmUnit, 0);
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    lv_obj_set_y(ui_RpmPageArcLabelRpmUnit, 104);
+#else
     lv_obj_set_y(ui_RpmPageArcLabelRpmUnit, 46);
+#endif
     lv_obj_set_align(ui_RpmPageArcLabelRpmUnit, LV_ALIGN_CENTER);
     lv_label_set_text(ui_RpmPageArcLabelRpmUnit, "rpm");
     lv_obj_set_style_text_color(ui_RpmPageArcLabelRpmUnit, ui_theme_color_lv(UI_COLOR_TEXT_PRIMARY), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_opa(ui_RpmPageArcLabelRpmUnit, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    lv_obj_set_style_text_font(ui_RpmPageArcLabelRpmUnit, &ui_font_FontTypoderSize24, LV_PART_MAIN | LV_STATE_DEFAULT);
+    ui_helpers_create_mini_brand(ui_ScreenPageRpm, -132, false);
+#else
     lv_obj_set_style_text_font(ui_RpmPageArcLabelRpmUnit, &ui_font_FontTypoderSize40, LV_PART_MAIN | LV_STATE_DEFAULT);
+#endif
 
     ui_ImageRpmBlackEar = lv_img_create(ui_ScreenPageRpm);
     lv_img_set_src(ui_ImageRpmBlackEar, &ui_img_pngblackear_png);

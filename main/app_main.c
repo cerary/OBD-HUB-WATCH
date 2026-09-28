@@ -268,7 +268,14 @@ void app_main(void)
     /* Allocate double buffers (DMA memory). Larger buffers -> full-screen render strips halved -> higher frame rate.
        Only affects LVGL render chunking, not the SPI single-transfer size (still chunked by max_transfer_sz), so no screen corruption.
        Falls back automatically to the original 20 lines when internal DMA RAM is insufficient, avoiding boot-time OOM. */
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    // This board's PSRAM frame buffer already holds the full frame. Keeping
+    // two 40-line DMA strips consumed ~75 KiB of internal RAM and left too
+    // little for Wi-Fi's fixed RX buffers after the larger round UI loaded.
+    size_t buf_px = LVGL_BUFF_SIZE;
+#else
     size_t buf_px = LCD_H_RES * 40;
+#endif
     lv_color_t *buf1 = heap_caps_malloc(buf_px * sizeof(lv_color_t), MALLOC_CAP_DMA);
     lv_color_t *buf2 = heap_caps_malloc(buf_px * sizeof(lv_color_t), MALLOC_CAP_DMA);
     if (!buf1 || !buf2) {
@@ -435,6 +442,11 @@ void app_main(void)
         /* 9.8 Start ESP-NOW broadcast (sends this unit's OBD data cache to the slave) -- MASTER only;
                STANDALONE skips it; WiFi is never initialized (saves RF/power and does not interfere with BLE). */
         if (espnow_on) {
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+            ESP_LOGI(TAG, "Before ESP-NOW: internal free=%u largest=%u",
+                     (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+                     (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+#endif
             espnow_link_start_master();
         }
 

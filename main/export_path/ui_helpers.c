@@ -5,6 +5,7 @@
 
 #include "ui_helpers.h"
 #include "ui_theme.h"
+#include "bsp_obd_dsp/nvs_storage.h"
 #if CONFIG_OBD_HW_VERSION_M5STOPWATCH
 #include "esp_heap_caps.h"
 #endif
@@ -455,6 +456,50 @@ lv_obj_t * ui_helpers_create_ring(lv_obj_t * parent, uint8_t border_width)
     lv_obj_set_style_border_width(ring, border_width, LV_PART_MAIN);
     lv_obj_set_style_border_opa(ring, 255, LV_PART_MAIN);
     return ring;
+}
+
+lv_color_t ui_helpers_brand_accent_color(void)
+{
+    return lv_color_hex(nvs_brand_logo_get() == 1 ? 0xEF4035 : 0xF05A28);
+}
+
+lv_obj_t * ui_helpers_create_mini_brand(lv_obj_t *parent, lv_coord_t center_y, bool large)
+{
+    const bool gp = nvs_brand_logo_get() == 1;
+    const lv_coord_t w = large ? 228 : 126;
+    const lv_coord_t h = large ? 68 : 42;
+    const lv_coord_t bar_x = large ? 88 : 49;
+    const lv_coord_t bar_w = large ? 19 : 10;
+    lv_color_t accent = ui_helpers_brand_accent_color();
+
+    lv_obj_t *badge = lv_obj_create(parent);
+    lv_obj_remove_style_all(badge);
+    lv_obj_set_size(badge, w, h);
+    lv_obj_align(badge, LV_ALIGN_CENTER, 0, center_y);
+    lv_obj_set_style_radius(badge, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+    lv_obj_set_style_border_width(badge, large ? 2 : 1, LV_PART_MAIN);
+    lv_obj_set_style_border_color(badge, lv_color_hex(0x777777), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(badge, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_clear_flag(badge, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+
+    for (int side = -1; side <= 1; side += 2) {
+        for (int row = -1; row <= 1; row += 2) {
+            lv_obj_t *bar = lv_obj_create(badge);
+            lv_obj_remove_style_all(bar);
+            lv_obj_set_size(bar, bar_w, large ? 5 : 3);
+            lv_obj_align(bar, LV_ALIGN_CENTER, side * bar_x, row * (large ? 7 : 5));
+            lv_obj_set_style_bg_color(bar, accent, LV_PART_MAIN);
+            lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, LV_PART_MAIN);
+            lv_obj_clear_flag(bar, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+        }
+    }
+
+    lv_obj_t *wordmark = lv_label_create(badge);
+    lv_label_set_text(wordmark, gp ? "GP" : "JCW");
+    lv_obj_set_style_text_font(wordmark, large ? &ui_font_FontTypoderSize56 : &ui_font_FontTypoderSize24, LV_PART_MAIN);
+    lv_obj_set_style_text_color(wordmark, gp ? accent : ui_theme_color_lv(UI_COLOR_TEXT_PRIMARY), LV_PART_MAIN);
+    lv_obj_center(wordmark);
+    return badge;
 }
 
 void ui_helpers_style_screen_bg(lv_obj_t * scr)

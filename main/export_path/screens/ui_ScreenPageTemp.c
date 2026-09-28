@@ -36,16 +36,30 @@ static void make_row(lv_obj_t *parent, lv_obj_t **name_out, lv_obj_t **val_out, 
     *val_out = lv_label_create(parent);
     lv_label_set_long_mode(*val_out, LV_LABEL_LONG_CLIP);   // no wrap for overly long values
     lv_label_set_text(*val_out, "--");
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    lv_obj_set_style_text_font(*val_out, &ui_font_FontTypoderSize44, LV_PART_MAIN);
+#else
     lv_obj_set_style_text_font(*val_out, &ui_font_FontTypoderSize40, LV_PART_MAIN);
+#endif
     lv_obj_set_style_text_color(*val_out, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    lv_obj_set_width(*val_out, 140);
+    lv_obj_set_style_text_align(*val_out, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
+    lv_obj_align(*val_out, LV_ALIGN_RIGHT_MID, -126, cy);
+#else
     lv_obj_set_width(*val_out, 110);
     lv_obj_set_style_text_align(*val_out, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN);
     lv_obj_align(*val_out, LV_ALIGN_LEFT_MID, 70, cy);
+#endif
 
     // Right column: dot + name + unit
     // Right boundary = 290px (x=360-70, matches divider line edge)
     // dot left=185, name left=200..244, unit right=290
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    *dot_out = create_color_dot(parent, color, 63, cy);
+#else
     *dot_out = create_color_dot(parent, color, 185, cy);
+#endif
 
     *name_out = lv_label_create(parent);
     lv_label_set_long_mode(*name_out, LV_LABEL_LONG_CLIP);   // no wrap
@@ -54,7 +68,11 @@ static void make_row(lv_obj_t *parent, lv_obj_t **name_out, lv_obj_t **val_out, 
     lv_obj_set_style_text_color(*name_out, color, LV_PART_MAIN);
     lv_obj_set_width(*name_out, LV_SIZE_CONTENT);            // width follows the text, long names (BOOST/SPEED) don't wrap
     lv_obj_set_style_text_align(*name_out, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN);
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    lv_obj_align(*name_out, LV_ALIGN_LEFT_MID, 82, cy);
+#else
     lv_obj_align(*name_out, LV_ALIGN_LEFT_MID, 200, cy);
+#endif
 
     *unit_out = lv_label_create(parent);
     lv_label_set_long_mode(*unit_out, LV_LABEL_LONG_CLIP);   // no wrap
@@ -63,7 +81,11 @@ static void make_row(lv_obj_t *parent, lv_obj_t **name_out, lv_obj_t **val_out, 
     lv_obj_set_style_text_color(*unit_out, lv_color_hex(0x666666), LV_PART_MAIN);
     lv_obj_set_width(*unit_out, LV_SIZE_CONTENT);            // width follows the text (km/h etc.)
     lv_obj_set_style_text_align(*unit_out, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    lv_obj_align(*unit_out, LV_ALIGN_RIGHT_MID, -63, cy);
+#else
     lv_obj_align(*unit_out, LV_ALIGN_RIGHT_MID, -70, cy);
+#endif
 }
 
 // Helper: horizontal divider line
@@ -90,6 +112,20 @@ void ui_ScreenPageTemp_screen_init(void)
     lv_obj_t *spinner_ring = ui_helpers_create_ring(ui_ScreenPageTemp, 10);   // white ring: static circular border, replaces the rotating spinner, removes the arc seam gap
 
 
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    ui_helpers_create_mini_brand(ui_ScreenPageTemp, -149, false);
+    lv_obj_t *title = lv_label_create(ui_ScreenPageTemp);
+    lv_label_set_text(title, "TEMP");
+    lv_obj_set_style_text_font(title, &ui_font_FontTypoderSize20, LV_PART_MAIN);
+    lv_obj_set_style_text_color(title, ui_theme_color_lv(UI_COLOR_TEXT_SECONDARY), LV_PART_MAIN);
+    lv_obj_align(title, LV_ALIGN_CENTER, 0, -110);
+
+    make_row(ui_ScreenPageTemp, &ui_LabelTempName[0], &ui_LabelTempValue[0], &ui_LabelTempUnit[0], &ui_LabelTempDot[0], -55, lv_color_hex(0x44AAFF), "CLT", "'C");
+    make_hdiv(ui_ScreenPageTemp, -16, 300);
+    make_row(ui_ScreenPageTemp, &ui_LabelTempName[1], &ui_LabelTempValue[1], &ui_LabelTempUnit[1], &ui_LabelTempDot[1], +24, lv_color_hex(0x44FF88), "IAT", "'C");
+    make_hdiv(ui_ScreenPageTemp, +64, 300);
+    make_row(ui_ScreenPageTemp, &ui_LabelTempName[2], &ui_LabelTempValue[2], &ui_LabelTempUnit[2], &ui_LabelTempDot[2], +103, lv_color_hex(0xFF7722), "OIL", "'C");
+#else
     // ====== Row 1 (cy=-65): CLT - Blue ======
     make_row(ui_ScreenPageTemp, &ui_LabelTempName[0], &ui_LabelTempValue[0], &ui_LabelTempUnit[0], &ui_LabelTempDot[0], -65, lv_color_hex(0x44AAFF), "CLT", "'C");
     make_hdiv(ui_ScreenPageTemp, -30, 220);
@@ -100,6 +136,7 @@ void ui_ScreenPageTemp_screen_init(void)
 
     // ====== Row 3 (cy=+75): OIL - Amber (SSM 22 10 17) ======
     make_row(ui_ScreenPageTemp, &ui_LabelTempName[2], &ui_LabelTempValue[2], &ui_LabelTempUnit[2], &ui_LabelTempDot[2], +75, lv_color_hex(0xFF7722), "OIL", "'C");
+#endif
 
     // Backward compatibility for existing update code
     ui_LabelCoolantTempText = ui_LabelTempValue[0];

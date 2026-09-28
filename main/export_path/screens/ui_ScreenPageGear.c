@@ -66,6 +66,9 @@ void ui_ScreenPageGear_screen_init(void)
     lv_obj_add_flag(ui_ImageGearBlackEar, LV_OBJ_FLAG_ADV_HITTEST);     /// Flags
     lv_obj_clear_flag(ui_ImageGearBlackEar, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
 
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    ui_helpers_create_mini_brand(ui_ScreenPageGear, -132, false);
+#endif
     lv_obj_add_event_cb(ui_GearPageArcGearNumBack, ui_event_gear_background, LV_EVENT_ALL, NULL);
     lv_obj_move_foreground(ui_SpinnerGearPage);   // bring the ring to the front
     lv_obj_add_event_cb(ui_ScreenPageGear, ui_event_gear_background, LV_EVENT_GESTURE, NULL);

@@ -143,6 +143,10 @@ void _ui_switch_theme(int val)
 // otherwise draws a plain circle border in UI_COLOR_RING at `border_width`.
 lv_obj_t * ui_helpers_create_ring(lv_obj_t * parent, uint8_t border_width);
 
+// Compact vector MINI performance badge, selected independently of the vehicle profile.
+lv_obj_t * ui_helpers_create_mini_brand(lv_obj_t *parent, lv_coord_t center_y, bool large);
+lv_color_t ui_helpers_brand_accent_color(void);
+
 // Screen background: UI_COLOR_BG, plus the theme's dial-face artwork if it has
 // one. Every screen should use this instead of setting bg_color directly, so a
 // themed dial face reaches all pages from one place.

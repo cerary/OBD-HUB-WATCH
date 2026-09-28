@@ -32,7 +32,11 @@ static lv_obj_t *create_info_tile(lv_obj_t *parent,
     // Name label
     lv_obj_t *lbl_name = lv_label_create(parent);
     lv_label_set_text(lbl_name, name);
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    lv_obj_set_style_text_font(lbl_name, &ui_font_FontTypoderSize24, LV_PART_MAIN);
+#else
     lv_obj_set_style_text_font(lbl_name, &ui_font_FontTypoderSize20, LV_PART_MAIN);
+#endif
     lv_obj_set_style_text_color(lbl_name, name_color, LV_PART_MAIN);
     lv_obj_align(lbl_name, LV_ALIGN_CENTER, cx, cy - 28);
     if (name_out) *name_out = lbl_name;
@@ -42,7 +46,12 @@ static lv_obj_t *create_info_tile(lv_obj_t *parent,
     lv_label_set_text(lbl_val, "--");
     lv_obj_set_style_text_font(lbl_val, &ui_font_FontTypoderSize40, LV_PART_MAIN);
     lv_obj_set_style_text_color(lbl_val, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    lv_obj_set_width(lbl_val, 154);
+    lv_label_set_long_mode(lbl_val, LV_LABEL_LONG_CLIP);
+#else
     lv_obj_set_width(lbl_val, 120);
+#endif
     lv_obj_set_style_text_align(lbl_val, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
     lv_obj_align(lbl_val, LV_ALIGN_CENTER, cx, cy + 2);
 
@@ -94,13 +103,30 @@ void ui_ScreenPageInfo_screen_init(void)
     // Outer spinner ring (decorative, white)
     lv_obj_t *ring = ui_helpers_create_ring(ui_ScreenPageInfo, 8);   // white ring: static circular border, replaces the rotating spinner, removes the arc seam gap
 
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    ui_helpers_create_mini_brand(ui_ScreenPageInfo, -157, false);
+#endif
     // Page title
     lv_obj_t *title = lv_label_create(ui_ScreenPageInfo);
     lv_label_set_text(title, "INFO");
     lv_obj_set_style_text_font(title, &ui_font_FontTypoderSize20, LV_PART_MAIN);
     lv_obj_set_style_text_color(title, lv_color_hex(0x666666), LV_PART_MAIN);
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    lv_obj_align(title, LV_ALIGN_CENTER, 0, -117);
+#else
     lv_obj_align(title, LV_ALIGN_CENTER, 0, -148);
+#endif
 
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    // The 466 px canvas can carry the full five-cell grid without squeezing text.
+    create_hdiv(ui_ScreenPageInfo, -15, 310);
+    create_hdiv(ui_ScreenPageInfo, +88, 254);
+    create_vdiv(ui_ScreenPageInfo, 0, -8, 194);
+    const lv_coord_t col = 94;
+    const lv_coord_t row1 = -64;
+    const lv_coord_t row2 = +37;
+    const lv_coord_t row3 = +130;
+#else
     // Grid dividers
     // Row1 cy=-84: unit bottom at cy+34+8 = -42 → pixel 138
     // Hdiv at y=-36 → pixel 144 (6px gap below row1 unit)
@@ -113,36 +139,41 @@ void ui_ScreenPageInfo_screen_init(void)
     // Vertical divider between left and right cols, spans rows 1+2
     // center_y = (-84+22)/2 = -31, height ≈ 196px
     create_vdiv(ui_ScreenPageInfo, 0, -31, 196);
+    const lv_coord_t col = 82;
+    const lv_coord_t row1 = -84;
+    const lv_coord_t row2 = +22;
+    const lv_coord_t row3 = +112;
+#endif
 
     // ── Row 1 ──  cy = -84  (name pixel≈68, value≈96, unit≈126)
     // CLT: left column cx=-82
     ui_LabelInfoCLT  = create_info_tile(ui_ScreenPageInfo,
                                         &ui_LabelInfoName[0], &ui_LabelInfoUnit[0],
                                         "CLT", lv_color_hex(0x44AAFF), "'C",
-                                        -82, -84);
+                                        -col, row1);
     // OIL: right column cx=+82
     ui_LabelInfoOil  = create_info_tile(ui_ScreenPageInfo,
                                         &ui_LabelInfoName[1], &ui_LabelInfoUnit[1],
                                         "OIL", lv_color_hex(0xFF7722), "'C",
-                                        +82, -84);
+                                        +col, row1);
 
     // ── Row 2 ──  cy = +22  (name pixel≈174, value≈202, unit≈232)
     // LOAD: left column
     ui_LabelInfoLoad = create_info_tile(ui_ScreenPageInfo,
                                         &ui_LabelInfoName[2], &ui_LabelInfoUnit[2],
                                         "LOAD", lv_color_hex(0xFFCC00), "%",
-                                        -82, +22);
+                                        -col, row2);
     // TPS: right column
     ui_LabelInfoTPS  = create_info_tile(ui_ScreenPageInfo,
                                         &ui_LabelInfoName[3], &ui_LabelInfoUnit[3],
                                         "TPS", lv_color_hex(0xFF8844), "%",
-                                        +82, +22);
+                                        +col, row2);
 
     // ── Row 3: IAT centered ──  cy = +112
     ui_LabelInfoIAT  = create_info_tile(ui_ScreenPageInfo,
                                         &ui_LabelInfoName[4], &ui_LabelInfoUnit[4],
                                         "IAT", lv_color_hex(0x44FF88), "'C",
-                                        0, +112);
+                                        0, row3);
 
     ui_LabelInfoValue[0] = ui_LabelInfoCLT;
     ui_LabelInfoValue[1] = ui_LabelInfoOil;

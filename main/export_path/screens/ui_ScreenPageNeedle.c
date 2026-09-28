@@ -73,7 +73,11 @@ void ui_ScreenPageNeedle_screen_init(void)
 
     // ====== Needle dial ======
     ui_NeedleMeter = lv_meter_create(ui_ScreenPageNeedle);
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    lv_obj_set_size(ui_NeedleMeter, 408, 408);
+#else
     lv_obj_set_size(ui_NeedleMeter, 320, 320);
+#endif
     lv_obj_center(ui_NeedleMeter);
     lv_obj_clear_flag(ui_NeedleMeter, LV_OBJ_FLAG_CLICKABLE);
     // Dial background transparent, blends into the black page
@@ -114,7 +118,11 @@ void ui_ScreenPageNeedle_screen_init(void)
     lv_obj_set_style_text_font(ui_NeedleNameLabel, &ui_font_FontTypoderSize24, LV_PART_MAIN);
     lv_obj_set_style_text_color(ui_NeedleNameLabel, lv_color_hex(0xAAAAAA), LV_PART_MAIN);
     lv_obj_set_style_text_align(ui_NeedleNameLabel, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    lv_obj_align(ui_NeedleNameLabel, LV_ALIGN_CENTER, 0, -72);
+#else
     lv_obj_align(ui_NeedleNameLabel, LV_ALIGN_CENTER, 0, -52);
+#endif
 
     // ====== Value label (bottom, in the opening at the bottom of the 270° dial; the needle never sweeps here, so no overlap) ======
     ui_NeedleValueLabel = lv_label_create(ui_ScreenPageNeedle);
@@ -122,7 +130,11 @@ void ui_ScreenPageNeedle_screen_init(void)
     lv_obj_set_style_text_font(ui_NeedleValueLabel, &ui_font_FontTypoderSize40, LV_PART_MAIN);
     lv_obj_set_style_text_color(ui_NeedleValueLabel, ui_theme_color_lv(UI_COLOR_TEXT_PRIMARY), LV_PART_MAIN);
     lv_obj_set_style_text_align(ui_NeedleValueLabel, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    lv_obj_align(ui_NeedleValueLabel, LV_ALIGN_CENTER, 0, 72);
+#else
     lv_obj_align(ui_NeedleValueLabel, LV_ALIGN_CENTER, 0, 54);
+#endif
 
     // ====== Unit label (below the value) ======
     ui_NeedleUnitLabel = lv_label_create(ui_ScreenPageNeedle);
@@ -130,7 +142,12 @@ void ui_ScreenPageNeedle_screen_init(void)
     lv_obj_set_style_text_font(ui_NeedleUnitLabel, &ui_font_FontTypoderSize20, LV_PART_MAIN);
     lv_obj_set_style_text_color(ui_NeedleUnitLabel, ui_theme_color_lv(UI_COLOR_TEXT_SECONDARY), LV_PART_MAIN);
     lv_obj_set_style_text_align(ui_NeedleUnitLabel, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    lv_obj_align(ui_NeedleUnitLabel, LV_ALIGN_CENTER, 0, 119);
+    ui_helpers_create_mini_brand(ui_ScreenPageNeedle, -132, false);
+#else
     lv_obj_align(ui_NeedleUnitLabel, LV_ALIGN_CENTER, 0, 94);
+#endif
 
     // Apply the current data source (set range/name/unit)
     ui_needle_apply_source();

@@ -26,6 +26,15 @@ void ui_ScreenPageLogo_screen_init(void)
     lv_gif_set_src(imageLogo, &gifSnake400);
     lv_obj_align(imageLogo, LV_ALIGN_CENTER, 0, 0);
 #else
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    ui_helpers_create_mini_brand(ui_ScreenPageLogo, -12, true);
+    lv_obj_t *project = lv_label_create(ui_ScreenPageLogo);
+    lv_label_set_text(project, "SKY GAUGE");
+    lv_obj_set_style_text_font(project, &ui_font_FontTypoderSize20, LV_PART_MAIN);
+    lv_obj_set_style_text_color(project, ui_theme_color_lv(UI_COLOR_TEXT_SECONDARY), LV_PART_MAIN);
+    lv_obj_align(project, LV_ALIGN_CENTER, 0, 58);
+    imageLogo = NULL;
+#else
     // SKY GAUGE text logo using Conthrax font
     lv_obj_t *label_sky = lv_label_create(ui_ScreenPageLogo);
     lv_label_set_text(label_sky, "SKY");
@@ -42,6 +51,7 @@ void ui_ScreenPageLogo_screen_init(void)
     lv_obj_align(label_gauge, LV_ALIGN_CENTER, 0, 30);
 
     imageLogo = NULL; // No image logo anymore
+#endif
 
     // White border ring (same as Gear page style)
     lv_obj_t *spinnerLogo = ui_helpers_create_ring(ui_ScreenPageLogo, 10);   // white ring: static circular border, replaces the rotating spinner, removes the arc seam gap

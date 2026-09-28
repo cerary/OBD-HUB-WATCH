@@ -650,7 +650,12 @@ void my_timerMain(lv_timer_t * timer)
         if (s_disp_spd != s_last_spd) {
             s_last_spd = s_disp_spd;
             lv_label_set_text_fmt(ui_SpeedPageArcLabelSpeedText, "%d", (int)s_disp_spd);
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+            // The large StopWatch dial uses a road-speed scale of 0..240 km/h.
+            lv_arc_set_value(ui_SpeedPageArcSpeedBack, (s_disp_spd >= 240) ? 100 : (uint32_t)s_disp_spd * 100 / 240);
+#else
             lv_arc_set_value(ui_SpeedPageArcSpeedBack, (uint32_t)s_disp_spd*100/SWEEP_SPEED_PEAK);
+#endif
         }
     }
 
