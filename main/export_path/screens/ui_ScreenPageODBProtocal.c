@@ -123,5 +123,6 @@ void ui_ScreenPageODBProtocal_screen_init(void)
     /* Set the initial roller based on the current NVS protocol */
     const nvs_user_cfg_t *cfg = nvs_cfg_get();
     lv_roller_set_selected(ui_RollerODBProtocalChoose, cfg->protocol, LV_ANIM_OFF);
+    ui_helpers_enable_option_feedback(ui_RollerODBProtocalChoose);
 
 }

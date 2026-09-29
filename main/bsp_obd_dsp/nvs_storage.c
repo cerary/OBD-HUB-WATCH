@@ -34,6 +34,8 @@ static nvs_user_cfg_t s_cfg =   {
                         .rpm_warn_threshold = 6000,
                         .rpm_warn_anim_en = 0,
                         .rpm_warn_linked_en = 0,
+                        .touch_haptic_enabled = 1,
+                        .touch_sound_enabled = 0,
                     };
 static nvs_stat_t     s_stat = {0};   // runtime-only stats, not persisted (reset every boot to save flash)
 static SemaphoreHandle_t s_mux;
@@ -146,10 +148,14 @@ esp_err_t nvs_storage_init(void)
 
     /* Default-value repair for new fields (old NVS data has rsv[x] all zero) */
     if(s_cfg.brightness_day < 10) s_cfg.brightness_day = 100; // valid range 10-100; 0/unset/out-of-range all become 100
-    if(s_cfg.default_page > 6) s_cfg.default_page = 0; // 0=Temp,1=Info,2=Chart,3=Needle,4=Gear,5=Rpm,6=Speed (brake temp merged into Chart)
+    if(s_cfg.default_page > 8) s_cfg.default_page = 0; // 7=G-force, 8=expression (StopWatch)
     if(s_cfg.needle_source_idx >= 11) s_cfg.needle_source_idx = 0; // DISP_ITEM_COUNT=11 (CLT..BOOST)
     if(s_cfg.device_role > 2) s_cfg.device_role = ESPNOW_ROLE_STANDALONE; // role: 0=master 1=slave 2=standalone; out-of-range -> standalone
     if(s_cfg.chart_source_idx >= 11) s_cfg.chart_source_idx = 8; // chart item out-of-range -> default OILP (old NVS byte 0=CLT is also fine, unify to OILP)
+    if(s_cfg.g_cal_valid > 1) s_cfg.g_cal_valid = 0;
+    if(s_cfg.g_front_mode > 2) s_cfg.g_front_mode = 0;
+    if(s_cfg.touch_haptic_enabled > 1) s_cfg.touch_haptic_enabled = 1;
+    if(s_cfg.touch_sound_enabled > 1) s_cfg.touch_sound_enabled = 0;
     // Clamp vehicle profile index to the registered profile count (out-of-range -> index 0)
     uint8_t vehicle_count = 0;
     vehicle_profile_get_all(&vehicle_count);

@@ -74,6 +74,9 @@ void ui_ScreenPageChartAlarm_screen_init(void)
     lv_slider_set_value(s_alarm_slider, sv, LV_ANIM_OFF);
     lv_obj_set_width(s_alarm_slider, 200);
     lv_obj_set_height(s_alarm_slider, 10);
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    lv_obj_set_ext_click_area(s_alarm_slider, 17);
+#endif
     lv_obj_align(s_alarm_slider, LV_ALIGN_CENTER, 0, 30);
     lv_obj_set_style_bg_color(s_alarm_slider, lv_color_hex(0x333333), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(s_alarm_slider, 255, LV_PART_MAIN);
@@ -83,6 +86,7 @@ void ui_ScreenPageChartAlarm_screen_init(void)
     lv_obj_set_style_pad_all(s_alarm_slider, 5, LV_PART_KNOB);
     lv_obj_clear_flag(s_alarm_slider, LV_OBJ_FLAG_GESTURE_BUBBLE);   // dragging must not trigger the page back gesture
     lv_obj_add_event_cb(s_alarm_slider, on_alarm_slider_change, LV_EVENT_VALUE_CHANGED, NULL);
+    ui_helpers_enable_option_feedback(s_alarm_slider);
     alarm_update_value_label(sv);
 
     lv_obj_t *hint = lv_label_create(ui_ScreenPageChartAlarm);

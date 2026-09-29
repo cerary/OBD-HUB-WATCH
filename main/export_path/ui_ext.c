@@ -293,6 +293,10 @@ static void boot_enter_default_page(void)
         case 4: target_scr = &ui_ScreenPageGear;  target_init = ui_ScreenPageGear_screen_init;  break;
         case 5: target_scr = &ui_ScreenPageRpm;   target_init = ui_ScreenPageRpm_screen_init;   break;
         case 6: target_scr = &ui_ScreenPageSpeed; target_init = ui_ScreenPageSpeed_screen_init; break;
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+        case 7: target_scr = &ui_ScreenPageGForce; target_init = ui_ScreenPageGForce_screen_init; break;
+        case 8: target_scr = &ui_ScreenPageExpression; target_init = ui_ScreenPageExpression_screen_init; break;
+#endif
         default: target_scr = &ui_ScreenPageTemp; target_init = ui_ScreenPageTemp_screen_init;  break;
     }
     if(*target_scr == NULL) target_init();

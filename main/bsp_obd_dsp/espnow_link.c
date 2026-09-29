@@ -184,9 +184,22 @@ static void master_linktest_task(void *arg) {
 
 static void master_task(void *arg) {
     espnow_obd_packet_t pkt;
+    int64_t last_no_mem_log_us = 0;
     for (;;) {
         master_pack(&pkt);
         esp_err_t r = esp_now_send(s_broadcast_mac, (const uint8_t *)&pkt, sizeof(pkt));
+        if (r == ESP_ERR_ESPNOW_NO_MEM) {
+            // The Wi-Fi send queue is congested; avoid retrying every 20/100 ms
+            // while BLE is also negotiating its OBDLink connection.
+            int64_t now_us = esp_timer_get_time();
+            if (last_no_mem_log_us == 0 || now_us - last_no_mem_log_us >= 5000000) {
+                ESP_LOGW(TAG, "ESP-NOW TX queue full; backing off 500 ms");
+                last_no_mem_log_us = now_us;
+            }
+            vTaskDelay(pdMS_TO_TICKS(500));
+            continue;
+        }
+        last_no_mem_log_us = 0;
         if (r != ESP_OK) ESP_LOGW(TAG, "esp_now_send err=%d", r);
         vTaskDelay(pdMS_TO_TICKS(s_linktest_active ? 20 : BROADCAST_INTERVAL_MS));
     }

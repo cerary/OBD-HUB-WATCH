@@ -23,6 +23,30 @@ static lv_obj_t *s_spinner = NULL;          // scan spinner
 static lv_obj_t *s_saved_panel = NULL;      // saved device panel
 static lv_obj_t *s_label_saved_hdr = NULL;  // "SAVED" sub-header
 static lv_obj_t *s_saved_name_lbl = NULL;   // saved device name label
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+static lv_obj_t *s_label_nearby = NULL;
+static lv_obj_t *s_saved_divider = NULL;
+static void layout_saved_device(bool saved)
+{
+    if (s_saved_panel) {
+        if (saved) lv_obj_clear_flag(s_saved_panel, LV_OBJ_FLAG_HIDDEN);
+        else lv_obj_add_flag(s_saved_panel, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (s_label_saved_hdr) {
+        if (saved) lv_obj_clear_flag(s_label_saved_hdr, LV_OBJ_FLAG_HIDDEN);
+        else lv_obj_add_flag(s_label_saved_hdr, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (s_saved_divider) {
+        if (saved) lv_obj_clear_flag(s_saved_divider, LV_OBJ_FLAG_HIDDEN);
+        else lv_obj_add_flag(s_saved_divider, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (s_label_nearby) lv_obj_align(s_label_nearby, LV_ALIGN_TOP_MID, 0, saved ? 217 : 141);
+    if (s_list) {
+        lv_obj_set_size(s_list, 300, saved ? 131 : 202);
+        lv_obj_align(s_list, LV_ALIGN_TOP_MID, 0, saved ? 238 : 166);
+    }
+}
+#endif
 static bool s_scanning = false;
 static bool s_slave_mode = false;           // true=slave pairing with a master, false=OBD device scan (original logic)
 
@@ -71,6 +95,9 @@ static void scan_result_cb(const ble_scan_result_t *dev, int total_count) {
 
         // Add new device button
         lv_obj_t *btn = lv_list_add_btn(s_list, NULL, dev->name);
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+        lv_obj_set_height(btn, 46);
+#endif
         lv_obj_set_style_bg_color(btn, lv_color_hex(0x222222), LV_PART_MAIN);
         lv_obj_set_style_bg_opa(btn, 255, LV_PART_MAIN);
         lv_obj_set_style_text_color(btn, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
@@ -106,6 +133,9 @@ static void scan_result_cb_gauge(const gauge_pair_scan_result_t *dev, int total_
         }
 
         lv_obj_t *btn = lv_list_add_btn(s_list, NULL, dev->name);
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+        lv_obj_set_height(btn, 46);
+#endif
         lv_obj_set_style_bg_color(btn, lv_color_hex(0x222222), LV_PART_MAIN);
         lv_obj_set_style_bg_opa(btn, 255, LV_PART_MAIN);
         lv_obj_set_style_text_color(btn, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
@@ -165,6 +195,9 @@ static void on_device_selected(lv_event_t *e) {
     if (s_saved_name_lbl) lv_label_set_text(s_saved_name_lbl, name);
     if (s_saved_panel)    lv_obj_clear_flag(s_saved_panel,    LV_OBJ_FLAG_HIDDEN);
     if (s_label_saved_hdr) lv_obj_clear_flag(s_label_saved_hdr, LV_OBJ_FLAG_HIDDEN);
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    layout_saved_device(true);
+#endif
 
     lv_label_set_text_fmt(s_label_status, "Connecting: %s", name);
     if (s_spinner) lv_obj_clear_flag(s_spinner, LV_OBJ_FLAG_HIDDEN);
@@ -189,6 +222,9 @@ static void on_pair_result(bool ok, const char *name, const uint8_t mac[6]) {
         if (s_saved_name_lbl) lv_label_set_text(s_saved_name_lbl, cfg.ble_device_name);
         if (s_saved_panel)    lv_obj_clear_flag(s_saved_panel,    LV_OBJ_FLAG_HIDDEN);
         if (s_label_saved_hdr) lv_obj_clear_flag(s_label_saved_hdr, LV_OBJ_FLAG_HIDDEN);
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+        layout_saved_device(true);
+#endif
 
         lv_label_set_text(s_label_status, "Paired!");
         _ui_screen_change(&ui_ScreenPageTemp, LV_SCR_LOAD_ANIM_FADE_ON, 300, 500, &ui_ScreenPageTemp_screen_init);
@@ -214,9 +250,7 @@ static void on_saved_device_delete(lv_event_t *e) {
         ESP_LOGI(TAG_BLE_UI, "Unbound saved master");
     } else {
         // If currently connected, disconnect BLE first
-        if (elm327_ble_is_connected()) {
-            elm327_ble_disconnect();
-        }
+        elm327_ble_disconnect();
         nvs_user_cfg_t cfg = *nvs_cfg_get();
         cfg.ble_device_name[0] = '\0';
         memset(cfg.ble_obd_mac, 0, sizeof(cfg.ble_obd_mac));
@@ -226,6 +260,9 @@ static void on_saved_device_delete(lv_event_t *e) {
 
     if (s_saved_panel)    lv_obj_add_flag(s_saved_panel,    LV_OBJ_FLAG_HIDDEN);
     if (s_label_saved_hdr) lv_obj_add_flag(s_label_saved_hdr, LV_OBJ_FLAG_HIDDEN);
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    layout_saved_device(false);
+#endif
     if (s_label_status)   lv_label_set_text(s_label_status, "Saved device removed");
 
     if (s_slave_mode) {
@@ -325,7 +362,7 @@ void ui_ScreenPageBLEScan_screen_init(void)
     s_saved_panel = lv_obj_create(ui_ScreenPageBLEScan);
     lv_obj_remove_style_all(s_saved_panel);
 #if CONFIG_OBD_HW_VERSION_M5STOPWATCH
-    lv_obj_set_size(s_saved_panel, 300, 38);
+    lv_obj_set_size(s_saved_panel, 300, 50);
     lv_obj_align(s_saved_panel, LV_ALIGN_TOP_MID, 0, 156);
 #else
     lv_obj_set_size(s_saved_panel, 264, 32);
@@ -341,6 +378,10 @@ void ui_ScreenPageBLEScan_screen_init(void)
     // Device name inside panel
     s_saved_name_lbl = lv_label_create(s_saved_panel);
     lv_label_set_text(s_saved_name_lbl, has_saved ? saved_cfg->ble_device_name : "");
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    lv_obj_set_width(s_saved_name_lbl, 226);
+    lv_label_set_long_mode(s_saved_name_lbl, LV_LABEL_LONG_DOT);
+#endif
     lv_obj_set_style_text_font(s_saved_name_lbl, &ui_font_FontTypoderSize20, LV_PART_MAIN);
     lv_obj_set_style_text_color(s_saved_name_lbl, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
     lv_obj_align(s_saved_name_lbl, LV_ALIGN_LEFT_MID, 4, 0);
@@ -348,7 +389,11 @@ void ui_ScreenPageBLEScan_screen_init(void)
     // Delete button inside panel
     lv_obj_t *del_btn = lv_btn_create(s_saved_panel);
     lv_obj_set_style_clip_corner(del_btn, true, 0);
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    lv_obj_set_size(del_btn, 46, 42);
+#else
     lv_obj_set_size(del_btn, 30, 24);
+#endif
     lv_obj_align(del_btn, LV_ALIGN_RIGHT_MID, -2, 0);
     lv_obj_set_style_bg_color(del_btn, lv_color_hex(0xBB2222), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(del_btn, 255, LV_PART_MAIN);
@@ -358,10 +403,19 @@ void ui_ScreenPageBLEScan_screen_init(void)
     lv_label_set_text(del_lbl, LV_SYMBOL_CLOSE);
     lv_obj_set_style_text_color(del_lbl, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
     lv_obj_center(del_lbl);
-    lv_obj_add_event_cb(del_btn, on_saved_device_delete, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(del_btn, on_saved_device_delete,
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+                        LV_EVENT_LONG_PRESSED,
+#else
+                        LV_EVENT_CLICKED,
+#endif
+                        NULL);
 
     // Thin divider
     lv_obj_t *divider = lv_obj_create(ui_ScreenPageBLEScan);
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    s_saved_divider = divider;
+#endif
     lv_obj_remove_style_all(divider);
 #if CONFIG_OBD_HW_VERSION_M5STOPWATCH
     lv_obj_set_size(divider, 280, 1);
@@ -377,6 +431,9 @@ void ui_ScreenPageBLEScan_screen_init(void)
 
     // ==== NEARBY SCAN SECTION ====
     lv_obj_t *label_nearby = lv_label_create(ui_ScreenPageBLEScan);
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    s_label_nearby = label_nearby;
+#endif
     lv_label_set_text(label_nearby, "NEARBY");
     lv_obj_set_style_text_font(label_nearby, &ui_font_FontTypoderSize16, LV_PART_MAIN);
     lv_obj_set_style_text_color(label_nearby, lv_color_hex(0x888888), LV_PART_MAIN);
@@ -400,12 +457,15 @@ void ui_ScreenPageBLEScan_screen_init(void)
     lv_obj_set_style_border_width(s_list, 1, LV_PART_MAIN);
     lv_obj_set_style_border_color(s_list, lv_color_hex(0x444444), LV_PART_MAIN);
     lv_obj_set_style_pad_all(s_list, 4, LV_PART_MAIN);
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    lv_obj_set_style_pad_row(s_list, 6, LV_PART_MAIN);
+#endif
     lv_obj_set_style_radius(s_list, 8, LV_PART_MAIN);
 
     // Hint text at bottom
     lv_obj_t *label_hint = lv_label_create(ui_ScreenPageBLEScan);
 #if CONFIG_OBD_HW_VERSION_M5STOPWATCH
-    lv_label_set_text(label_hint, "Tap device / swipe back");
+    lv_label_set_text(label_hint, "Tap device / hold X / swipe back");
 #else
     lv_label_set_text(label_hint, "Tap to connect  Slide to back");
 #endif

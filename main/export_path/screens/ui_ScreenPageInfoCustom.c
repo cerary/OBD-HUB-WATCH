@@ -41,7 +41,11 @@ static void create_row(lv_obj_t *parent, int idx, const char *title, lv_coord_t 
     lv_roller_set_options(s_info_rollers[idx], k_data_options, LV_ROLLER_MODE_NORMAL);
     lv_roller_set_visible_row_count(s_info_rollers[idx], 1);
     lv_obj_set_width(s_info_rollers[idx], 170);
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    lv_obj_set_height(s_info_rollers[idx], 44);
+#else
     lv_obj_set_height(s_info_rollers[idx], 38);
+#endif
     lv_obj_set_style_text_font(s_info_rollers[idx], &ui_font_FontTypoderSize20, LV_PART_MAIN);
     lv_obj_set_style_text_font(s_info_rollers[idx], &ui_font_FontTypoderSize20, LV_PART_SELECTED);
     lv_obj_set_style_bg_color(s_info_rollers[idx], lv_color_hex(0x222222), LV_PART_MAIN);
@@ -53,6 +57,7 @@ static void create_row(lv_obj_t *parent, int idx, const char *title, lv_coord_t 
     lv_obj_set_style_radius(s_info_rollers[idx], 8, LV_PART_SELECTED);   // round the white selected band too, it was spilling square past the corners
     lv_obj_align(s_info_rollers[idx], LV_ALIGN_CENTER, 30, y);
     lv_obj_add_event_cb(s_info_rollers[idx], on_info_map_changed, LV_EVENT_VALUE_CHANGED, (void *)idx);
+    ui_helpers_enable_option_feedback(s_info_rollers[idx]);
 }
 
 void ui_ScreenPageInfoCustom_screen_init(void)
@@ -67,11 +72,19 @@ void ui_ScreenPageInfoCustom_screen_init(void)
 
     lv_obj_t *ring = ui_helpers_create_ring(ui_ScreenPageInfoCustom, 10);   // white ring: static circular border, replaces the rotating spinner, removes the arc seam gap
 
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    create_row(ui_ScreenPageInfoCustom, 0, "SLOT 1", -108);
+    create_row(ui_ScreenPageInfoCustom, 1, "SLOT 2", -54);
+    create_row(ui_ScreenPageInfoCustom, 2, "SLOT 3", 0);
+    create_row(ui_ScreenPageInfoCustom, 3, "SLOT 4", 54);
+    create_row(ui_ScreenPageInfoCustom, 4, "SLOT 5", 108);
+#else
     create_row(ui_ScreenPageInfoCustom, 0, "SLOT 1", -82);
     create_row(ui_ScreenPageInfoCustom, 1, "SLOT 2", -38);
     create_row(ui_ScreenPageInfoCustom, 2, "SLOT 3", 6);
     create_row(ui_ScreenPageInfoCustom, 3, "SLOT 4", 50);
     create_row(ui_ScreenPageInfoCustom, 4, "SLOT 5", 94);
+#endif
 
     for (int i = 0; i < 5; ++i) {
         lv_roller_set_selected(s_info_rollers[i], cfg->info_display_map[i], LV_ANIM_OFF);

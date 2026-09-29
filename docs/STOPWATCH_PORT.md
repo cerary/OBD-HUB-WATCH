@@ -1,5 +1,7 @@
 # M5Stack StopWatch port
 
+> 此文记录 2026-09-29 的移植状态。2026-09-30 的当前固件、验证结果和后续任务见 [STOPWATCH_HANDOFF.md](../STOPWATCH_HANDOFF.md)。
+
 This branch ports `steveEcode/obd_brz_gauge` to the M5Stack StopWatch C152
 (ESP32-S3, 16 MB flash, 8 MB PSRAM). The hardware reference is the M5Stack
 StopWatch UserDemo. The desktop project root is

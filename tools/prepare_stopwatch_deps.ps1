@@ -25,6 +25,25 @@ foreach ($dep in $deps) {
     }
 }
 
+# The StopWatch G page uses Bosch's official BMI270 sensor API directly on the
+# same new-style ESP-IDF I2C bus as the display/touch bridge.
+$bmiPath = Join-Path $parent 'BMI270_SensorAPI'
+$bmiCommit = '41129fcfe39c583ee5462d79195741945d51c1fe'
+if (-not (Test-Path -LiteralPath $bmiPath)) {
+    git clone --depth 1 https://github.com/boschsensortec/BMI270_SensorAPI.git $bmiPath
+    if ($LASTEXITCODE -ne 0) { throw 'Could not clone BMI270_SensorAPI' }
+    # The remote default branch can move. Fetch and detach the reviewed commit
+    # so a fresh project checkout builds with the same sensor API revision.
+    git -C $bmiPath fetch --depth 1 origin $bmiCommit
+    if ($LASTEXITCODE -ne 0) { throw "Could not fetch BMI270_SensorAPI revision $bmiCommit" }
+    git -C $bmiPath checkout --detach $bmiCommit
+    if ($LASTEXITCODE -ne 0) { throw "Could not check out BMI270_SensorAPI revision $bmiCommit" }
+}
+$bmiActual = git -c "safe.directory=$bmiPath" -C $bmiPath rev-parse HEAD
+if ($LASTEXITCODE -ne 0 -or $bmiActual.Trim() -ne $bmiCommit) {
+    throw "BMI270_SensorAPI revision differs from $bmiCommit. Inspect it before building."
+}
+
 # These two driver headers select an I2C ABI with __has_include(<M5GFX.h>).
 # Every translation unit must see the same M5GFX include path, or global C++
 # objects have different layouts and overwrite the neighboring display object.

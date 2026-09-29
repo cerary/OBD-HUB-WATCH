@@ -190,10 +190,19 @@ void ui_ScreenPageNeedleConfig_screen_init(void)
     lv_obj_set_style_clip_corner(s_roller_source, true, 0);
     lv_obj_clear_flag(s_roller_source, LV_OBJ_FLAG_GESTURE_BUBBLE); // scrolling the selection must not trigger the page gesture (back)
     lv_roller_set_options(s_roller_source, options, LV_ROLLER_MODE_NORMAL);
-    lv_roller_set_visible_row_count(s_roller_source, 3);
     lv_roller_set_selected(s_roller_source, source_to_roller_pos(cfg->needle_source_idx), LV_ANIM_OFF);
-    lv_obj_set_width(s_roller_source, 160);
+    lv_obj_set_width(s_roller_source,
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+                     220
+#else
+                     160
+#endif
+                     );
     ui_helpers_style_dark_roller(s_roller_source, &ui_font_FontTypoderSize24);
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    lv_obj_set_style_text_line_space(s_roller_source, 17, LV_PART_MAIN);
+#endif
+    lv_roller_set_visible_row_count(s_roller_source, 3);
     lv_obj_align(s_roller_source, LV_ALIGN_CENTER, 0, 8);
     lv_obj_add_event_cb(s_roller_source, on_needle_source_changed, LV_EVENT_VALUE_CHANGED, NULL);
 

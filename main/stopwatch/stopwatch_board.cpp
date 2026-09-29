@@ -8,11 +8,21 @@
 #include <M5PM1.h>
 #include <lgfx/v1/panel/Panel_AMOLED.hpp>
 #include <driver/i2c_master.h>
+#include <driver/i2s_std.h>
+#include <driver/gpio.h>
+#include <esp_codec_dev.h>
+#include <esp_codec_dev_defaults.h>
 #include <esp_log.h>
 #include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <sdkconfig.h>
+#include <esp_rom_sys.h>
+#include <bmi270.h>
+#include <math.h>
+extern "C" {
+#include "bsp_obd_dsp/nvs_storage.h"
+}
 
 namespace {
 constexpr char TAG[] = "stopwatch";
@@ -43,6 +53,7 @@ class StopWatchDisplay final : public M5GFX {
     PanelCO5300 panel_;
 public:
     void setPanelBrightness(uint8_t brightness) { panel_.setBrightness(brightness); }
+    void waitForPanelTransfer() { panel_.waitDisplay(); }
     bool init_impl(bool use_reset, bool use_clear) override {
         auto bus_cfg = bus_.config();
         bus_cfg.freq_write = 80000000;
@@ -86,12 +97,129 @@ StopWatchDisplay display;
 M5PM1 pmic;
 M5IOE1 ioe;
 Cst820 touch;
+i2c_master_bus_handle_t i2c_bus = nullptr;
+i2c_master_dev_handle_t imu_device = nullptr;
+struct bmi2_dev imu = {};
+bool imu_ready = false;
+TaskHandle_t feedback_task_handle = nullptr;
+esp_codec_dev_handle_t sound_codec = nullptr;
+i2s_chan_handle_t sound_tx = nullptr;
+bool sound_init_attempted = false;
+bool sound_ready = false;
+portMUX_TYPE feedback_lock = portMUX_INITIALIZER_UNLOCKED;
+uint8_t pending_feedback = 0;
+bool explicit_feedback_for_press = false;
+uint64_t last_touch_feedback_us = 0;
+uint64_t last_option_feedback_us = 0;
+uint64_t last_page_feedback_us = 0;
 bool touch_ready = false;
 bool touch_filtered = false;
 bool touch_candidate = false;
 uint32_t touch_candidate_since = 0;
 uint16_t touch_x = 0;
 uint16_t touch_y = 0;
+
+BMI2_INTF_RETURN_TYPE bmi_i2c_read(uint8_t reg, uint8_t *data, uint32_t len, void *ptr) {
+    auto dev = *static_cast<i2c_master_dev_handle_t *>(ptr);
+    return i2c_master_transmit_receive(dev, &reg, 1, data, len, 100) == ESP_OK ? 0 : -1;
+}
+
+BMI2_INTF_RETURN_TYPE bmi_i2c_write(uint8_t reg, const uint8_t *data, uint32_t len, void *ptr) {
+    if (len > 64) return -1;
+    auto dev = *static_cast<i2c_master_dev_handle_t *>(ptr);
+    uint8_t tx[65];
+    tx[0] = reg;
+    for (uint32_t i = 0; i < len; ++i) tx[i + 1] = data[i];
+    return i2c_master_transmit(dev, tx, len + 1, 100) == ESP_OK ? 0 : -1;
+}
+
+void bmi_delay_us(uint32_t us, void *) {
+    if (us >= 2000) vTaskDelay(pdMS_TO_TICKS((us + 999) / 1000));
+    else esp_rom_delay_us(us);
+}
+
+bool init_sound(void) {
+    if (sound_init_attempted) return sound_ready;
+    sound_init_attempted = true;
+    i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0,I2S_ROLE_MASTER);
+    if (i2s_new_channel(&chan_cfg,&sound_tx,nullptr) != ESP_OK) return false;
+    i2s_std_config_t std_cfg = {};
+    std_cfg.clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(44100);
+    std_cfg.slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT,I2S_SLOT_MODE_STEREO);
+    std_cfg.gpio_cfg.mclk = GPIO_NUM_18;
+    std_cfg.gpio_cfg.bclk = GPIO_NUM_17;
+    std_cfg.gpio_cfg.ws = GPIO_NUM_15;
+    std_cfg.gpio_cfg.dout = GPIO_NUM_21;
+    std_cfg.gpio_cfg.din = GPIO_NUM_NC;
+    if (i2s_channel_init_std_mode(sound_tx,&std_cfg) != ESP_OK ||
+        i2s_channel_enable(sound_tx) != ESP_OK) return false;
+    audio_codec_i2s_cfg_t data_cfg = {};
+    data_cfg.tx_handle = sound_tx;
+    const audio_codec_data_if_t *data_if = audio_codec_new_i2s_data(&data_cfg);
+    audio_codec_i2c_cfg_t i2c_cfg = {};
+    i2c_cfg.addr = ES8311_CODEC_DEFAULT_ADDR;
+    i2c_cfg.bus_handle = i2c_bus;
+    const audio_codec_ctrl_if_t *ctrl_if = audio_codec_new_i2c_ctrl(&i2c_cfg);
+    const audio_codec_gpio_if_t *gpio_if = audio_codec_new_gpio();
+    es8311_codec_cfg_t codec_cfg = {};
+    codec_cfg.ctrl_if=ctrl_if;
+    codec_cfg.gpio_if=gpio_if;
+    codec_cfg.codec_mode=ESP_CODEC_DEV_WORK_MODE_DAC;
+    codec_cfg.pa_pin=GPIO_NUM_NC;
+    codec_cfg.use_mclk=true;
+    const audio_codec_if_t *codec_if=es8311_codec_new(&codec_cfg);
+    esp_codec_dev_cfg_t dev_cfg = {};
+    dev_cfg.dev_type=ESP_CODEC_DEV_TYPE_OUT;
+    dev_cfg.codec_if=codec_if;
+    dev_cfg.data_if=data_if;
+    sound_codec=esp_codec_dev_new(&dev_cfg);
+    if (!sound_codec) return false;
+    esp_codec_dev_sample_info_t format = {};
+    format.bits_per_sample=16;
+    format.channel=1;
+    format.sample_rate=44100;
+    if (esp_codec_dev_open(sound_codec,&format) != ESP_OK) return false;
+    esp_codec_dev_set_out_vol(sound_codec,18);
+    sound_ready=true;
+    return true;
+}
+
+void feedback_task(void *) {
+    static int16_t pcm[882]; // 20 ms, 44.1 kHz mono
+    for (int i=0;i<882;++i) pcm[i]=(int16_t)(5500.f*sinf(6.2831853f*660.f*i/44100.f));
+    for (;;) {
+        ulTaskNotifyTake(pdTRUE,portMAX_DELAY);
+        // Touch release reaches the driver just before LVGL emits CLICKED,
+        // VALUE_CHANGED or GESTURE. Coalesce those events into one cue.
+        vTaskDelay(pdMS_TO_TICKS(35));
+        portENTER_CRITICAL(&feedback_lock);
+        uint8_t kind=pending_feedback;
+        pending_feedback=0;
+        portEXIT_CRITICAL(&feedback_lock);
+        if (!kind) continue;
+        const nvs_user_cfg_t *cfg=nvs_cfg_get();
+        bool haptic=cfg->touch_haptic_enabled;
+        bool sound=cfg->touch_sound_enabled;
+        if (sound && !sound_ready) init_sound();
+        const uint8_t duty=kind==STOPWATCH_FEEDBACK_PAGE ? 80 : 55;
+        const uint32_t pulse_ms=kind==STOPWATCH_FEEDBACK_PAGE ? 35 : 20;
+        int64_t motor_start=esp_timer_get_time();
+        if (haptic) ioe.setPwmDuty(0,duty,false,true);
+        if (sound && sound_ready) {
+            ioe.digitalWrite(M5IOE1_PIN_10,1);
+            gpio_set_level(GPIO_NUM_14,1);
+            vTaskDelay(pdMS_TO_TICKS(8));
+            esp_codec_dev_write(sound_codec,pcm,sizeof(pcm));
+            gpio_set_level(GPIO_NUM_14,0);
+            ioe.digitalWrite(M5IOE1_PIN_10,0);
+        }
+        if (haptic) {
+            int64_t remaining_us=(int64_t)pulse_ms*1000-(esp_timer_get_time()-motor_start);
+            if (remaining_us>0) vTaskDelay(pdMS_TO_TICKS((remaining_us+999)/1000));
+            ioe.setPwmDuty(0,0,false,true);
+        }
+    }
+}
 }
 
 extern "C" bool stopwatch_board_init(void) {
@@ -102,25 +230,39 @@ extern "C" bool stopwatch_board_init(void) {
     i2c_cfg.clk_source = I2C_CLK_SRC_DEFAULT;
     i2c_cfg.glitch_ignore_cnt = 7;
     i2c_cfg.flags.enable_internal_pullup = true;
-    i2c_master_bus_handle_t bus = nullptr;
-    if (i2c_new_master_bus(&i2c_cfg, &bus) != ESP_OK) return false;
+    if (i2c_new_master_bus(&i2c_cfg, &i2c_bus) != ESP_OK) return false;
 
-    if (pmic.begin(bus) != M5PM1_OK) return false;
+    if (pmic.begin(i2c_bus) != M5PM1_OK) return false;
     pmic.setI2cSleepTime(0);
     pmic.wdtSet(0);
     pmic.ldoSetPowerHold(true);
 
-    auto ioe_result = ioe.begin(bus, 0x4F, M5IOE1_I2C_FREQ_400K);
+    auto ioe_result = ioe.begin(i2c_bus, 0x4F, M5IOE1_I2C_FREQ_400K);
     if (ioe_result != M5IOE1_OK)
-        ioe_result = ioe.begin(bus, 0x6F, M5IOE1_I2C_FREQ_400K);
+        ioe_result = ioe.begin(i2c_bus, 0x6F, M5IOE1_I2C_FREQ_400K);
     if (ioe_result != M5IOE1_OK) return false;
     ioe.setI2cSleepTime(0);
     ioe.pinMode(M5IOE1_PIN_8, OUTPUT);
     ioe.pinMode(M5IOE1_PIN_5, OUTPUT);
     ioe.pinMode(M5IOE1_PIN_4, OUTPUT);
+    ioe.pinMode(M5IOE1_PIN_9, OUTPUT);
+    ioe.pinMode(M5IOE1_PIN_10, OUTPUT);
+    ioe.pinMode(M5IOE1_PIN_3, OUTPUT);
     ioe.digitalWrite(M5IOE1_PIN_8, 1);
     ioe.digitalWrite(M5IOE1_PIN_4, 1);
     ioe.digitalWrite(M5IOE1_PIN_5, 1);
+    ioe.digitalWrite(M5IOE1_PIN_10, 0); // speaker amplifier stays off until enabled by user
+    ioe.digitalWrite(M5IOE1_PIN_3, 1);
+    ioe.setPwmFrequency(5000);
+    ioe.setPwmDuty(0,0,false,true);
+    gpio_set_direction(GPIO_NUM_14,GPIO_MODE_OUTPUT);
+    gpio_set_level(GPIO_NUM_14,0);
+    gpio_config_t button_cfg = {};
+    button_cfg.pin_bit_mask = (1ULL << GPIO_NUM_2) | (1ULL << GPIO_NUM_1);
+    button_cfg.mode = GPIO_MODE_INPUT;
+    button_cfg.pull_up_en = GPIO_PULLUP_ENABLE;
+    button_cfg.pull_down_en = GPIO_PULLDOWN_DISABLE;
+    if (gpio_config(&button_cfg) != ESP_OK) return false;
     vTaskDelay(pdMS_TO_TICKS(50));
 
     if (!display.init()) return false;
@@ -133,8 +275,9 @@ extern "C" bool stopwatch_board_init(void) {
     vTaskDelay(pdMS_TO_TICKS(10));
     ioe.digitalWrite(M5IOE1_PIN_4, 1);
     vTaskDelay(pdMS_TO_TICKS(50));
-    touch_ready = touch.begin(bus, 0x15);
+    touch_ready = touch.begin(i2c_bus, 0x15);
     ESP_LOGI(TAG, "CST820 touch %s", touch_ready ? "ready" : "unavailable");
+    xTaskCreate(feedback_task,"touch-feedback",8192,nullptr,4,&feedback_task_handle);
     return true;
 }
 
@@ -164,7 +307,25 @@ extern "C" void stopwatch_board_flush(int x, int y, int width, int height,
         count -= chunk;
     }
     display.endWrite();
-    if (last) display.display();
+    // Panel_AMOLED_Framebuffer uses two DMA row buffers sized to the transfer
+    // width. Partial-width updates repeatedly shrink and grow those buffers;
+    // after BLE starts, a grow can fail and switch individual rows to the
+    // much slower register path. Keep the row width fixed at the 468-pixel
+    // panel width while still transferring only the dirty vertical span.
+    static int dirty_top = 466;
+    static int dirty_bottom = -1;
+    if (y < dirty_top) dirty_top = y;
+    if (y + height - 1 > dirty_bottom) dirty_bottom = y + height - 1;
+    if (last) {
+        if (dirty_bottom >= dirty_top) {
+            display.display(0, dirty_top, 468, dirty_bottom - dirty_top + 1);
+            // display.waitDisplay() targets the framebuffer panel (a no-op).
+            // Wait on the underlying AMOLED bus before LVGL reuses its strips.
+            display.waitForPanelTransfer();
+        }
+        dirty_top = 466;
+        dirty_bottom = -1;
+    }
 }
 
 extern "C" bool stopwatch_board_touch(uint16_t *x, uint16_t *y) {
@@ -184,9 +345,107 @@ extern "C" bool stopwatch_board_touch(uint16_t *x, uint16_t *y) {
     }
     if (touch_filtered != touch_candidate && now - touch_candidate_since >= 60)
         touch_filtered = touch_candidate;
+    static bool was_pressed = false;
+    if (!was_pressed && touch_filtered) {
+        portENTER_CRITICAL(&feedback_lock);
+        explicit_feedback_for_press=false;
+        portEXIT_CRITICAL(&feedback_lock);
+    }
+    if (was_pressed && !touch_filtered)
+        stopwatch_board_feedback(STOPWATCH_FEEDBACK_TOUCH);
+    was_pressed=touch_filtered;
     if (!touch_filtered) return false;
     *x = touch_x;
     *y = touch_y;
+    return true;
+}
+
+extern "C" void stopwatch_board_buttons_read(bool *left_pressed, bool *right_pressed) {
+    if (left_pressed) *left_pressed = gpio_get_level(GPIO_NUM_2) == 0;
+    if (right_pressed) *right_pressed = gpio_get_level(GPIO_NUM_1) == 0;
+}
+
+extern "C" void stopwatch_board_feedback(stopwatch_feedback_t kind) {
+    if (!feedback_task_handle || kind<STOPWATCH_FEEDBACK_TOUCH ||
+        kind>STOPWATCH_FEEDBACK_PAGE) return;
+    uint64_t now_us=esp_timer_get_time();
+    bool queue=false;
+    portENTER_CRITICAL(&feedback_lock);
+    if (kind!=STOPWATCH_FEEDBACK_TOUCH) explicit_feedback_for_press=true;
+    uint64_t *last=kind==STOPWATCH_FEEDBACK_PAGE ? &last_page_feedback_us :
+                   kind==STOPWATCH_FEEDBACK_OPTION ? &last_option_feedback_us :
+                   &last_touch_feedback_us;
+    if ((kind!=STOPWATCH_FEEDBACK_TOUCH || !explicit_feedback_for_press) &&
+        now_us-*last>=120000) {
+        *last=now_us;
+        if (pending_feedback<kind) pending_feedback=kind;
+        queue=true;
+    }
+    portEXIT_CRITICAL(&feedback_lock);
+    if (queue) xTaskNotifyGive(feedback_task_handle);
+}
+
+extern "C" bool stopwatch_board_power_status(uint8_t *percent, bool *external_power) {
+    if (!percent || !external_power) return false;
+    uint16_t battery_mv = 0;
+    uint16_t input_mv = 0;
+    if (pmic.readVbat(&battery_mv) != M5PM1_OK ||
+        pmic.readVin(&input_mv) != M5PM1_OK) return false;
+    if (battery_mv <= 3300) *percent = 0;
+    else if (battery_mv >= 4200) *percent = 100;
+    else *percent = static_cast<uint8_t>((battery_mv - 3300U) * 100U / 900U);
+    *external_power = input_mv > 4000;
+    return true;
+}
+
+extern "C" bool stopwatch_board_imu_init(void) {
+    if (imu_ready) return true;
+    if (!i2c_bus) return false;
+    if (!imu_device) {
+        i2c_device_config_t cfg = {};
+        cfg.dev_addr_length = I2C_ADDR_BIT_LEN_7;
+        cfg.device_address = 0x68;
+        cfg.scl_speed_hz = 400000;
+        if (i2c_master_bus_add_device(i2c_bus, &cfg, &imu_device) != ESP_OK) return false;
+    }
+    imu = {};
+    imu.intf = BMI2_I2C_INTF;
+    imu.intf_ptr = &imu_device;
+    imu.read = bmi_i2c_read;
+    imu.write = bmi_i2c_write;
+    imu.delay_us = bmi_delay_us;
+    imu.read_write_len = 32;
+    int8_t rc = bmi270_init(&imu);
+    if (rc == BMI2_OK) {
+        struct bmi2_sens_config config = {};
+        config.type = BMI2_ACCEL;
+        rc = bmi2_get_sensor_config(&config, 1, &imu);
+        if (rc == BMI2_OK) {
+            config.cfg.acc.odr = BMI2_ACC_ODR_100HZ;
+            config.cfg.acc.range = BMI2_ACC_RANGE_4G;
+            config.cfg.acc.bwp = BMI2_ACC_NORMAL_AVG4;
+            config.cfg.acc.filter_perf = BMI2_PERF_OPT_MODE;
+            rc = bmi2_set_sensor_config(&config, 1, &imu);
+        }
+        if (rc == BMI2_OK) {
+            uint8_t sensor = BMI2_ACCEL;
+            rc = bmi2_sensor_enable(&sensor, 1, &imu);
+        }
+    }
+    imu_ready = (rc == BMI2_OK);
+    ESP_LOGI(TAG, "BMI270 %s (result %d)", imu_ready ? "ready" : "unavailable", rc);
+    return imu_ready;
+}
+
+extern "C" bool stopwatch_board_imu_read(float *x, float *y, float *z) {
+    if (!imu_ready || !x || !y || !z) return false;
+    struct bmi2_sens_data data = {};
+    if (bmi2_get_sensor_data(&data, &imu) != BMI2_OK || !(data.status & BMI2_DRDY_ACC)) return false;
+    constexpr float scale = 4.0f / 32768.0f;
+    // M5Stack's StopWatch demo swaps the sensor's X/Y axes to match the face.
+    *x = data.acc.y * scale;
+    *y = data.acc.x * scale;
+    *z = data.acc.z * scale;
     return true;
 }
 

@@ -580,7 +580,7 @@ def render(themes):
 
     for slot, theme in themes:
         rel = Path(*theme["path"].parts[-4:])
-        w(f"// slot {slot} — {rel}")
+        w(f"// slot {slot} — {rel.as_posix()}")
         if theme["description"]:
             w(f"// {theme['description']}")
         if theme["author"]:

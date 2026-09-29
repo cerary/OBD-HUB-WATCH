@@ -8,6 +8,9 @@
 #include "bsp_obd_dsp/nvs_storage.h"
 #include "bsp_obd_dsp/elm327_ble_client.h"
 #include "bsp_obd_dsp/espnow_link.h"
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+#include "stopwatch/stopwatch_board.h"
+#endif
 
 #ifndef OBD_GAUGE_BUILD_TAG
 #define OBD_GAUGE_BUILD_TAG "unknown"
@@ -15,6 +18,69 @@
 
 // ui_ScreenPageOTAMode is lazily created; forward ref for the OTA button handler
 extern lv_obj_t *ui_ScreenPageOTAMode;
+
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+static lv_obj_t *s_supply_arc;
+static lv_obj_t *s_battery_arc;
+static lv_obj_t *s_supply_label;
+static lv_obj_t *s_battery_label;
+static lv_timer_t *s_power_timer;
+
+static lv_obj_t *make_power_arc(lv_obj_t *parent, uint16_t rotation, uint32_t accent)
+{
+    lv_obj_t *arc = lv_arc_create(parent);
+    lv_obj_set_size(arc, 400, 400);  // 200 px radius, following the bezel curvature
+    lv_obj_center(arc);
+    lv_arc_set_range(arc, 0, 100);
+    lv_arc_set_bg_angles(arc, 0, 22);
+    lv_arc_set_rotation(arc, rotation);
+    lv_arc_set_value(arc, 0);
+    lv_obj_set_style_arc_width(arc, 8, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(arc, 8, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_color(arc, lv_color_hex(0x303841), LV_PART_MAIN);
+    lv_obj_set_style_arc_color(arc, lv_color_hex(accent), LV_PART_INDICATOR);
+    lv_obj_set_style_bg_opa(arc, LV_OPA_TRANSP, LV_PART_KNOB);
+    lv_obj_clear_flag(arc, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+    return arc;
+}
+
+static void refresh_power(lv_timer_t *timer)
+{
+    (void)timer;
+    uint8_t level = 0;
+    bool external = false;
+    if (!stopwatch_board_power_status(&level, &external)) {
+        lv_label_set_text(s_supply_label, "POWER --");
+        lv_label_set_text(s_battery_label, "BAT --");
+        lv_arc_set_value(s_supply_arc, 0);
+        lv_arc_set_value(s_battery_arc, 0);
+        return;
+    }
+    lv_label_set_text(s_supply_label, external ? "USB 5V" : "BAT PWR");
+    lv_label_set_text_fmt(s_battery_label, "BAT %u%%", level);
+    lv_arc_set_value(s_supply_arc, external ? 100 : 0);
+    lv_arc_set_value(s_battery_arc, level);
+}
+
+static void on_info_delete(lv_event_t *e)
+{
+    (void)e;
+    if (s_power_timer) {
+        lv_timer_del(s_power_timer);
+        s_power_timer = NULL;
+    }
+    s_supply_arc = s_battery_arc = NULL;
+    s_supply_label = s_battery_label = NULL;
+}
+static void on_info_screen_state(lv_event_t *e)
+{
+    if (!s_power_timer) return;
+    if (lv_event_get_code(e)==LV_EVENT_SCREEN_LOADED) {
+        refresh_power(NULL);
+        lv_timer_resume(s_power_timer);
+    } else if (lv_event_get_code(e)==LV_EVENT_SCREEN_UNLOADED) lv_timer_pause(s_power_timer);
+}
+#endif
 
 void ui_ScreenPageEasterEgg_screen_init(void)
 {
@@ -75,8 +141,18 @@ void ui_ScreenPageEasterEgg_screen_init(void)
     // ---- OTA button (the BUILD tag already lives in the info block above) ----
     lv_obj_t *btn_ota = lv_btn_create(ui_ScreenPageEasterEgg);
     lv_obj_set_style_clip_corner(btn_ota, true, 0);
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    lv_obj_set_size(btn_ota, 154, 44);
+#else
     lv_obj_set_size(btn_ota, 140, 32);
-    lv_obj_align(btn_ota, LV_ALIGN_BOTTOM_MID, 0, -56);
+#endif
+    lv_obj_align(btn_ota, LV_ALIGN_BOTTOM_MID, 0,
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+                 -100
+#else
+                 -56
+#endif
+                 );
     lv_obj_set_style_bg_color(btn_ota, lv_color_hex(0x00AA55), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_opa(btn_ota, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_radius(btn_ota, 16, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -87,6 +163,27 @@ void ui_ScreenPageEasterEgg_screen_init(void)
     lv_obj_set_style_text_color(lbl_ota, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_center(lbl_ota);
     lv_obj_add_event_cb(btn_ota, ui_event_easter_egg_ota_button, LV_EVENT_CLICKED, NULL);
+
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    s_supply_arc = make_power_arc(ui_ScreenPageEasterEgg, 98, 0x2CE18C);
+    s_battery_arc = make_power_arc(ui_ScreenPageEasterEgg, 60, 0x58C8FF);
+    s_supply_label = lv_label_create(ui_ScreenPageEasterEgg);
+    lv_label_set_text(s_supply_label, "POWER --");
+    lv_obj_set_style_text_font(s_supply_label, &ui_font_FontTypoderSize16, LV_PART_MAIN);
+    lv_obj_set_style_text_color(s_supply_label, lv_color_hex(0xEAF9F1), LV_PART_MAIN);
+    lv_obj_align(s_supply_label, LV_ALIGN_CENTER, -77, 156);
+    s_battery_label = lv_label_create(ui_ScreenPageEasterEgg);
+    lv_label_set_text(s_battery_label, "BAT --");
+    lv_obj_set_style_text_font(s_battery_label, &ui_font_FontTypoderSize16, LV_PART_MAIN);
+    lv_obj_set_style_text_color(s_battery_label, lv_color_hex(0xE7F6FD), LV_PART_MAIN);
+    lv_obj_align(s_battery_label, LV_ALIGN_CENTER, 77, 156);
+    refresh_power(NULL);
+    s_power_timer = lv_timer_create(refresh_power, 2000, NULL);
+    lv_obj_add_event_cb(ui_ScreenPageEasterEgg, on_info_delete, LV_EVENT_DELETE, NULL);
+    lv_obj_add_event_cb(ui_ScreenPageEasterEgg, on_info_screen_state, LV_EVENT_SCREEN_LOADED, NULL);
+    lv_obj_add_event_cb(ui_ScreenPageEasterEgg, on_info_screen_state, LV_EVENT_SCREEN_UNLOADED, NULL);
+    lv_obj_move_foreground(spinner_ring);
+#endif
 
     imageEasterEgg = NULL;
 

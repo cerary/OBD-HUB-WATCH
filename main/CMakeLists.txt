@@ -82,17 +82,29 @@ set(OBD_BOARD_SOURCE_DIRS
                     "bsp_obd_dsp/exio"
                     "bsp_obd_dsp/i2c_driver"
                     "bsp_obd_dsp/touch_driver")
+set(OBD_BMI270_SRCS)
+set(OBD_BMI270_INCLUDE_DIRS)
 # IDF reads component requirements before Kconfig has been evaluated. Discover
 # the optional sibling components by path here, not by CONFIG_*.
 set(OBD_BOARD_REQUIRES)
 if((DEFINED SDKCONFIG AND SDKCONFIG MATCHES "stopwatch" AND EXISTS "${OBD_MAIN_DIR}/../../M5GFX")
    OR DEFINED ENV{STOPWATCH_DEPS_DIR})
-    set(OBD_BOARD_REQUIRES M5GFX M5PM1 M5IOE1 driver)
+    set(OBD_BOARD_REQUIRES M5GFX M5PM1 M5IOE1 esp_codec_dev driver)
 endif()
 if(CONFIG_OBD_HW_VERSION_M5STOPWATCH)
     # ADS1115 code is linked but never started on this board; retain its I2C
     # helper symbols until the vehicle sensor module is split per board.
     set(OBD_BOARD_SOURCE_DIRS "stopwatch" "bsp_obd_dsp/i2c_driver")
+    set(OBD_BMI270_DIR "${OBD_MAIN_DIR}/../../BMI270_SensorAPI")
+    if(DEFINED ENV{STOPWATCH_DEPS_DIR})
+        set(OBD_BMI270_DIR "$ENV{STOPWATCH_DEPS_DIR}/BMI270_SensorAPI")
+    endif()
+    file(TO_CMAKE_PATH "${OBD_BMI270_DIR}" OBD_BMI270_DIR)
+    if(NOT EXISTS "${OBD_BMI270_DIR}/bmi270.c" OR NOT EXISTS "${OBD_BMI270_DIR}/bmi2.c")
+        message(FATAL_ERROR "Bosch BMI270 Sensor API missing at ${OBD_BMI270_DIR}; run tools/prepare_stopwatch_deps.ps1")
+    endif()
+    set(OBD_BMI270_SRCS "${OBD_BMI270_DIR}/bmi2.c" "${OBD_BMI270_DIR}/bmi270.c")
+    set(OBD_BMI270_INCLUDE_DIRS "${OBD_BMI270_DIR}")
 endif()
 
 idf_component_register(SRC_DIRS
@@ -109,6 +121,7 @@ idf_component_register(SRC_DIRS
                     "theme_engine"
                     INCLUDE_DIRS
                     "."
+                    ${OBD_BMI270_INCLUDE_DIRS}
                     REQUIRES
                     esp_http_server
                     esp_wifi
@@ -119,6 +132,9 @@ idf_component_register(SRC_DIRS
                     app_update
                     json
                     ${OBD_BOARD_REQUIRES})
+if(OBD_BMI270_SRCS)
+    target_sources(${COMPONENT_LIB} PRIVATE ${OBD_BMI270_SRCS})
+endif()
 
 # Firmware reads bootmedia as a raw manifest at 0x0000 and media at 0x1000.
 set(OBD_BOOTMEDIA_DIR ${OBD_MAIN_DIR}/../bootmedia/slot_a)

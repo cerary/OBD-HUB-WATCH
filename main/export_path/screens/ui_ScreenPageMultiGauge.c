@@ -49,7 +49,11 @@ static void style_mg_roller(lv_obj_t *r)
     lv_obj_set_width(r, 180);
     ui_helpers_style_dark_roller(r, &ui_font_FontTypoderSize20);
     lv_roller_set_visible_row_count(r, 1);   // after the font so the row height uses Size20
-    lv_obj_set_height(r, 30);                // explicit, same as the settings page rollers
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    lv_obj_set_height(r, 44);
+#else
+    lv_obj_set_height(r, 30);
+#endif
 }
 
 static void make_mg_label(lv_obj_t *parent, const char *txt, int y)
@@ -88,16 +92,34 @@ void ui_ScreenPageMultiGauge_screen_init(void)
     lv_label_set_text(title, "MULTI-GAUGE");
     lv_obj_set_style_text_font(title, &ui_font_FontTypoderSize20, LV_PART_MAIN);
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
-    lv_obj_align(title, LV_ALIGN_CENTER, 0, -98);
+    lv_obj_align(title, LV_ALIGN_CENTER, 0,
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+                 -130
+#else
+                 -98
+#endif
+                 );
 
     // Row 1: MODE
-    make_mg_label(ui_ScreenPageMultiGauge, "MODE", -68);
+    make_mg_label(ui_ScreenPageMultiGauge, "MODE",
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+                  -90
+#else
+                  -68
+#endif
+                  );
     s_roller_mode = lv_roller_create(ui_ScreenPageMultiGauge);
     lv_obj_set_style_clip_corner(s_roller_mode, true, 0);
     style_mg_roller(s_roller_mode);
     lv_roller_set_options(s_roller_mode, mode_names, LV_ROLLER_MODE_NORMAL);
     lv_roller_set_selected(s_roller_mode, (cfg->device_role <= 2) ? cfg->device_role : ESPNOW_ROLE_STANDALONE, LV_ANIM_OFF);
-    lv_obj_align(s_roller_mode, LV_ALIGN_CENTER, 0, -38);
+    lv_obj_align(s_roller_mode, LV_ALIGN_CENTER, 0,
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+                 -55
+#else
+                 -38
+#endif
+                 );
     lv_obj_add_event_cb(s_roller_mode, on_mode_roller_change, LV_EVENT_VALUE_CHANGED, NULL);
 
     // Row 2: POS (RACE/AS/ONE position)
@@ -105,7 +127,13 @@ void ui_ScreenPageMultiGauge_screen_init(void)
     lv_label_set_text(s_lbl_pos, "POS");
     lv_obj_set_style_text_font(s_lbl_pos, &ui_font_FontTypoderSize16, LV_PART_MAIN);
     lv_obj_set_style_text_color(s_lbl_pos, lv_color_hex(0x888888), LV_PART_MAIN);
-    lv_obj_align(s_lbl_pos, LV_ALIGN_CENTER, 0, -6);
+    lv_obj_align(s_lbl_pos, LV_ALIGN_CENTER, 0,
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+                 -10
+#else
+                 -6
+#endif
+                 );
     s_roller_pos = lv_roller_create(ui_ScreenPageMultiGauge);
     lv_obj_set_style_clip_corner(s_roller_pos, true, 0);
     style_mg_roller(s_roller_pos);
@@ -115,7 +143,13 @@ void ui_ScreenPageMultiGauge_screen_init(void)
         if (p < 1 || p > 3) p = 1;
         lv_roller_set_selected(s_roller_pos, p - 1, LV_ANIM_OFF);
     }
-    lv_obj_align(s_roller_pos, LV_ALIGN_CENTER, 0, 24);
+    lv_obj_align(s_roller_pos, LV_ALIGN_CENTER, 0,
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+                 25
+#else
+                 24
+#endif
+                 );
     lv_obj_add_event_cb(s_roller_pos, on_pos_roller_change, LV_EVENT_VALUE_CHANGED, NULL);
 
     // Row 3: INTRO (multi-gauge: OFF/RACE/VIDEO)
@@ -123,7 +157,13 @@ void ui_ScreenPageMultiGauge_screen_init(void)
     lv_label_set_text(s_lbl_intro, "INTRO");
     lv_obj_set_style_text_font(s_lbl_intro, &ui_font_FontTypoderSize16, LV_PART_MAIN);
     lv_obj_set_style_text_color(s_lbl_intro, lv_color_hex(0x888888), LV_PART_MAIN);
-    lv_obj_align(s_lbl_intro, LV_ALIGN_CENTER, 0, 56);
+    lv_obj_align(s_lbl_intro, LV_ALIGN_CENTER, 0,
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+                 70
+#else
+                 56
+#endif
+                 );
     s_roller_intro = lv_roller_create(ui_ScreenPageMultiGauge);
     lv_obj_set_style_clip_corner(s_roller_intro, true, 0);
     style_mg_roller(s_roller_intro);
@@ -133,7 +173,13 @@ void ui_ScreenPageMultiGauge_screen_init(void)
         if (ie > 2) ie = 2;   // legacy REI/SHINJI/ASUKA (3/4) map to VIDEO (2)
         lv_roller_set_selected(s_roller_intro, ie, LV_ANIM_OFF);
     }
-    lv_obj_align(s_roller_intro, LV_ALIGN_CENTER, 0, 86);
+    lv_obj_align(s_roller_intro, LV_ALIGN_CENTER, 0,
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+                 105
+#else
+                 86
+#endif
+                 );
     lv_obj_add_event_cb(s_roller_intro, on_intro_roller_change, LV_EVENT_VALUE_CHANGED, NULL);
 
     // Hide irrelevant rows based on role

@@ -182,6 +182,17 @@ extern lv_obj_t * ui_LabelInfoValue[5];
 extern lv_obj_t * ui_LabelInfoName[5];
 extern lv_obj_t * ui_LabelInfoUnit[5];
 void ui_event_info_background(lv_event_t * e);
+// StopWatch inertial G meter and mounting calibration
+void ui_ScreenPageGForce_screen_init(void);
+extern lv_obj_t * ui_ScreenPageGForce;
+void ui_gforce_clear_max(void);
+void ui_ScreenPageGForceCal_screen_init(void);
+extern lv_obj_t * ui_ScreenPageGForceCal;
+void ui_ScreenPageExpression_screen_init(void);
+extern lv_obj_t * ui_ScreenPageExpression;
+void ui_event_expression_background(lv_event_t * e);
+void ui_event_gforce_background(lv_event_t * e);
+void ui_event_gforce_cal_background(lv_event_t * e);
 // CUSTOM VARIABLES
 
 // SCREEN: ui_ScreenPageInfoCustom
@@ -193,6 +204,9 @@ void ui_event_info_custom_background(lv_event_t * e);
 void ui_ScreenPageSettings_screen_init(void);
 extern lv_obj_t * ui_ScreenPageSettings;
 void ui_event_settings_background(lv_event_t * e);
+void ui_ScreenPageFeedback_screen_init(void);
+extern lv_obj_t * ui_ScreenPageFeedback;
+void ui_event_feedback_background(lv_event_t * e);
 // CUSTOM VARIABLES
 
 // SCREEN: ui_ScreenPageOilWarn
@@ -298,6 +312,10 @@ LV_FONT_DECLARE(ui_font_FontTypoderSize140);
 
 // UI INIT
 void ui_init(void);
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+// Hardware buttons use the same horizontal carousel as touch gestures.
+bool ui_stopwatch_button_navigate(bool next);
+#endif
 void ui_event_logo_background(lv_event_t * e);
 void ui_event_main_background(lv_event_t * e);
 void ui_event_gear_background(lv_event_t * e);

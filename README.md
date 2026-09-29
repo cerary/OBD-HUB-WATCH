@@ -22,6 +22,8 @@ touch UI with LVGL.
 
 ## ⚠️ Branch Notice / 分支说明
 
+M5Stack StopWatch 移植在独立的 `port/m5stopwatch` 分支；从该分支继续开发请先读 [StopWatch 交接文档](STOPWATCH_HANDOFF.md)。
+
 This repository has two main branches with **incompatible partition layouts**:
 
 - **`main`** — Stable branch, themes compiled into firmware
@@ -44,6 +46,7 @@ This repository has two main branches with **incompatible partition layouts**:
 
 | Document | What it covers / 内容 |
 |----------|----------------------|
+| [STOPWATCH_HANDOFF.md](STOPWATCH_HANDOFF.md) | StopWatch 当前固件、实机验证和后续任务 / current StopWatch handoff |
 | [docs/README.zh-CN.md](docs/README.zh-CN.md) | **完整中文说明** — 功能、依赖、编译烧录、适配要点 |
 | [docs/README.en.md](docs/README.en.md) | **Full English guide** — features, requirements, build and flash |
 | [docs/BRANCH_COMPARISON.md](docs/BRANCH_COMPARISON.md) | **Branch differences** — main vs theme-upgrade partition layouts / 分支差异对比 |

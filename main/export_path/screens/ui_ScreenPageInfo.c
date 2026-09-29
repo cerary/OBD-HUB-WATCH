@@ -125,7 +125,7 @@ void ui_ScreenPageInfo_screen_init(void)
     const lv_coord_t col = 94;
     const lv_coord_t row1 = -64;
     const lv_coord_t row2 = +37;
-    const lv_coord_t row3 = +130;
+    const lv_coord_t row3 = +146;  // leave clear space below the second divider
 #else
     // Grid dividers
     // Row1 cy=-84: unit bottom at cy+34+8 = -42 → pixel 138

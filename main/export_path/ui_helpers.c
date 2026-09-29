@@ -10,6 +10,7 @@
 #include <string.h>
 #if CONFIG_OBD_HW_VERSION_M5STOPWATCH
 #include "esp_heap_caps.h"
+#include "stopwatch/stopwatch_board.h"
 #endif
 
 void _ui_bar_set_property(lv_obj_t * target, int id, int val)
@@ -60,6 +61,18 @@ void _ui_screen_change(lv_obj_t ** target, lv_scr_load_anim_t fademode, int spd,
 {
     if(*target == NULL)
         target_init();
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    if (lv_scr_act() != *target)
+        stopwatch_board_feedback(STOPWATCH_FEEDBACK_PAGE);
+    // Carousel pages requested a 5 ms fade, shorter than the 16 ms display
+    // refresh period. Skip the intermediate opacity frame and invalidate the
+    // complete target screen in one pass; this also avoids retaining a
+    // partially composited ring edge after a page switch.
+    if (fademode == LV_SCR_LOAD_ANIM_FADE_ON && spd <= 5 && delay == 0) {
+        lv_scr_load_anim(*target, LV_SCR_LOAD_ANIM_NONE, 0, 0, false);
+        return;
+    }
+#endif
     lv_scr_load_anim(*target, fademode, spd, delay, false);
 }
 
@@ -525,6 +538,25 @@ void ui_helpers_style_screen_bg(lv_obj_t * scr)
 
 // Dark roller shared colors/border/rounded corners (selected state: black text on white); caller only passes the font.
 // Structural settings (width/visible rows/gesture blocking, etc.) vary per page and stay with the caller.
+static void option_feedback_event(lv_event_t * e)
+{
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    if (lv_event_get_code(e) == LV_EVENT_VALUE_CHANGED)
+        stopwatch_board_feedback(STOPWATCH_FEEDBACK_OPTION);
+#else
+    (void)e;
+#endif
+}
+
+void ui_helpers_enable_option_feedback(lv_obj_t * obj)
+{
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    lv_obj_add_event_cb(obj, option_feedback_event, LV_EVENT_VALUE_CHANGED, NULL);
+#else
+    (void)obj;
+#endif
+}
+
 void ui_helpers_style_dark_roller(lv_obj_t * r, const lv_font_t * font)
 {
     lv_obj_set_style_text_font(r, font, LV_PART_MAIN);
@@ -538,6 +570,5 @@ void ui_helpers_style_dark_roller(lv_obj_t * r, const lv_font_t * font)
     lv_obj_set_style_text_color(r, lv_color_hex(0x000000), LV_PART_SELECTED);
     lv_obj_set_style_bg_color(r, lv_color_hex(0xFFFFFF), LV_PART_SELECTED);
     lv_obj_set_style_bg_opa(r, 255, LV_PART_SELECTED);
+    ui_helpers_enable_option_feedback(r);
 }
-
-

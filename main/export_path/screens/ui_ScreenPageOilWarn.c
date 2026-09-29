@@ -58,6 +58,9 @@ void ui_ScreenPageOilWarn_screen_init(void)
     lv_slider_set_value(s_slider_oil_warn, cfg->oil_pressure_warn_x10, LV_ANIM_OFF);
     lv_obj_set_width(s_slider_oil_warn, 220);
     lv_obj_set_height(s_slider_oil_warn, 12);
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    lv_obj_set_ext_click_area(s_slider_oil_warn, 17);
+#endif
     lv_obj_align(s_slider_oil_warn, LV_ALIGN_CENTER, 0, 26);
     lv_obj_set_style_bg_color(s_slider_oil_warn, lv_color_hex(0x333333), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(s_slider_oil_warn, 255, LV_PART_MAIN);
@@ -67,6 +70,7 @@ void ui_ScreenPageOilWarn_screen_init(void)
     lv_obj_set_style_pad_all(s_slider_oil_warn, 6, LV_PART_KNOB);
     lv_obj_clear_flag(s_slider_oil_warn, LV_OBJ_FLAG_GESTURE_BUBBLE);
     lv_obj_add_event_cb(s_slider_oil_warn, on_oil_warn_slider_change, LV_EVENT_VALUE_CHANGED, NULL);
+    ui_helpers_enable_option_feedback(s_slider_oil_warn);
 
     lv_obj_t *range = lv_label_create(ui_ScreenPageOilWarn);
     lv_label_set_text(range, "0.0bar - 10.0bar");

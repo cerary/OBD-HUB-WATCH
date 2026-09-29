@@ -23,11 +23,29 @@
 #include "nvs_storage.h"
 
 // UUID constants
-#define UUID16_OBD_SERVICE      0xFFF0  // common ELM327 BLE adapters (FFF1 write / FFF2 notify)
+#define UUID16_OBD_SERVICE      0xFFF0  // common ELM327 BLE UART service; characteristic directions vary
 #define UUID16_OBD_SERVICE_18F0  0x18F0  // IOS-Vlink / Vlink (2AF1 write / 2AF0 notify)
 #define UUID16_OBD_SERVICE_FF12  0xFF12  // config service of some adapters (e.g. Viecar) (FF15 write / FF14 notify)
-#define UUID16_OBD_WRITE_CHAR    0xFFF1
+#define UUID16_CX_NOTIFY_CHAR   0xFFF1
+#define UUID16_CX_WRITE_CHAR    0xFFF2
 #define UUID16_CCCD              0x2902
+
+// Some adapters expose a 16-bit UUID in its full Bluetooth-base 128-bit form.
+// ESP-IDF stores uuid128 least-significant byte first.
+static uint16_t ble_base_uuid16(const esp_bt_uuid_t *uuid) {
+    if (uuid->len == ESP_UUID_LEN_16) return uuid->uuid.uuid16;
+    static const uint8_t base_le[12] = {
+        0xFB, 0x34, 0x9B, 0x5F, 0x80, 0x00, 0x00, 0x80,
+        0x00, 0x10, 0x00, 0x00
+    };
+    if (uuid->len == ESP_UUID_LEN_128 &&
+        memcmp(uuid->uuid.uuid128, base_le, sizeof(base_le)) == 0 &&
+        uuid->uuid.uuid128[14] == 0 && uuid->uuid.uuid128[15] == 0) {
+        return (uint16_t)uuid->uuid.uuid128[12] |
+               ((uint16_t)uuid->uuid.uuid128[13] << 8);
+    }
+    return 0;
+}
 
 static const char *TAG = "elm327_ble";
 
@@ -62,6 +80,17 @@ static bool s_poll_task_started = false; // whether the poll task has been creat
 static volatile bool s_ota_paused = false; // during WiFi OTA: suppress auto-reconnect + polling so BLE stops competing for the radio
 static TaskHandle_t s_poll_task_handle = NULL; // poll task handle, used for task-notification wakeup
 static volatile bool s_notify_ready = false;   // set only after CCCD notify subscription completes; init/poll proceed based on this (prevents losing handshake responses)
+static bool s_notify_registered = false;
+static bool s_cccd_write_pending = false;
+static volatile int64_t s_notify_wait_started_us = 0;
+static volatile bool s_open_pending = false;
+static volatile int64_t s_open_started_us = 0;
+static uint8_t s_first_rx_log_count = 0;
+static bool s_obdlink_cx_uart = false;
+static bool s_obdlink_cx_secure = false;
+static bool s_cx_security_requested = false;
+static bool s_ever_obd_data_this_link = false;
+static bool s_ever_prompt_this_link = false;
 static volatile int64_t s_last_obd_valid_us = 0; // time of the last valid OBD data; a timeout without data triggers self-heal re-init
 static volatile bool s_got_valid_data = false;   // whether a genuinely valid frame has been parsed since the last poll round; set only by the parse path (not by do_elm_init), lets the poll task clear the self-heal counter
 static uint8_t s_oil_query_mode = 0;     // current query mode index (0-2)
@@ -70,10 +99,15 @@ static uint8_t s_oil_query_mode = 0;     // current query mode index (0-2)
 // do_elm_init only sets the timestamp and does NOT go through here — just having initialized does not mean "data is flowing". Otherwise heal_attempts
 // would be cleared right after every re-init, and "3 consecutive self-heals escalate to forced reconnect" could never be reached.
 static inline void mark_obd_data_valid(void) {
+    if (!s_ever_obd_data_this_link) {
+        ESP_LOGI(TAG, "First valid OBD response received");
+        s_ever_obd_data_this_link = true;
+    }
     s_last_obd_valid_us = esp_timer_get_time();
     s_got_valid_data = true;
 }
 
+static void start_scan(void);
 bool elm327_ble_send_ascii_blocking(const char *ascii_cmd);
 
 static bool send_rpm_request(const char *site)
@@ -367,6 +401,10 @@ static void default_on_raw_notify(const uint8_t *data, size_t len) {
     // xTaskNotify wakes the poll task immediately, avoiding the 10ms polling overhead
     for (size_t i = 0; i < len; ++i) {
         if (data[i] == '>') {
+            if (!s_ever_prompt_this_link) {
+                ESP_LOGI(TAG, "First ELM prompt received");
+                s_ever_prompt_this_link = true;
+            }
             s_elm_ready = true;
             if (s_poll_task_handle) xTaskNotify(s_poll_task_handle, 0, eNoAction);
             break;
@@ -405,7 +443,7 @@ static int elm327_auto_detect_protocol(void) {
 
         // Set the protocol
         char atsp_cmd[16];
-        snprintf(atsp_cmd, sizeof(atsp_cmd), "ATSP%d\r", proto);
+        snprintf(atsp_cmd, sizeof(atsp_cmd), "ATSP%X\r", proto);
         elm327_ble_send_ascii_blocking(atsp_cmd);
         vTaskDelay(pdMS_TO_TICKS(50));
 
@@ -883,7 +921,7 @@ static void do_elm_init(void) {
         }
     }
 
-    snprintf(atsp_cmd, sizeof(atsp_cmd), "ATSP%d\r", protocol_to_use);
+    snprintf(atsp_cmd, sizeof(atsp_cmd), "ATSP%X\r", protocol_to_use);
     const char *fixed_header_cmd = get_vehicle_fixed_header_cmd();
     // Timeout command: prefer the override's obd_timeout first, then the profile's obd_timeout, default 0x19
     const vehicle_override_t *vp_ov = vehicle_profile_get_override();
@@ -891,6 +929,9 @@ static void do_elm_init(void) {
     uint8_t timeout_val = (vp_ov && vp_ov->obd_timeout) ? vp_ov->obd_timeout
                           : ((vp_proto && vp_proto->obd_timeout) ? vp_proto->obd_timeout : 0x19);
     snprintf(atst_cmd, sizeof(atst_cmd), "ATST %02X\r", timeout_val);
+    ESP_LOGI(TAG, "ELM init: vehicle=%s ATSP%X %s ATST%02X",
+             vp_proto ? vp_proto->name : "unknown", protocol_to_use,
+             (vp_proto && vp_proto->obd_functional_addr) ? "ATSH7DF" : "ATSH7E0", timeout_val);
     const char *init_cmds[] = {
         "ATZ\r", "ATE0\r", "ATL0\r", "ATS1\r", "ATH0\r", "ATAT1\r", atst_cmd,
         atsp_cmd, fixed_header_cmd,
@@ -941,6 +982,20 @@ static void obd_poll_task(void *arg) {
         // Not connected or notify subscription not ready → mark for re-init and wait
         if (!s_connected || !s_notify_ready) {
             inited = false;
+            int64_t now_us = esp_timer_get_time();
+            if (!s_connected && s_open_pending &&
+                now_us - s_open_started_us > 20000000) {
+                ESP_LOGW(TAG, "OBD GATT open timed out; resuming scan");
+                s_open_pending = false;
+                start_scan();
+            }
+            if (s_connected && s_notify_wait_started_us > 0 &&
+                now_us - s_notify_wait_started_us > 45000000) {
+                ESP_LOGW(TAG, "OBD notify setup timed out: registered=%d CCCD=0x%04X pending=%d secure=%d; reconnecting",
+                         s_notify_registered, s_cccd_handle, s_cccd_write_pending, s_obdlink_cx_secure);
+                s_notify_wait_started_us = now_us;
+                esp_ble_gattc_close(s_gattc_if, s_conn_id);
+            }
             vTaskDelay(pdMS_TO_TICKS(300));
             continue;
         }
@@ -1408,12 +1463,31 @@ static void request_discovery(void) {
 }
 
 static void enable_notify_if_ready(void) {
-    if (s_cccd_handle) {
-        uint8_t notify_en[2] = {0x01, 0x00};
-        esp_ble_gattc_write_char_descr(s_gattc_if, s_conn_id, s_cccd_handle,
-                                       sizeof(notify_en), notify_en,
-                                       ESP_GATT_WRITE_TYPE_RSP, ESP_GATT_AUTH_REQ_NONE);
-    }
+    if (!s_connected || !s_cccd_handle || !s_notify_registered ||
+        s_notify_ready || s_cccd_write_pending) return;
+    uint8_t notify_en[2] = {0x01, 0x00};
+    esp_err_t err = esp_ble_gattc_write_char_descr(s_gattc_if, s_conn_id, s_cccd_handle,
+                                                    sizeof(notify_en), notify_en,
+                                                    ESP_GATT_WRITE_TYPE_RSP, ESP_GATT_AUTH_REQ_NONE);
+    if (err == ESP_OK) {
+        s_cccd_write_pending = true;
+        if (s_obdlink_cx_uart) ESP_LOGI(TAG, "OBDLink CX: subscribing to FFF1 to trigger pairing");
+    } else ESP_LOGW(TAG, "CCCD write request failed: %s", esp_err_to_name(err));
+}
+
+static void prepare_obdlink_cx_security(void) {
+    // Configure headless bonding before subscribing to FFF1. CX starts pairing
+    // when the central subscribes to FFF1 or writes FFF2.
+    esp_ble_auth_req_t auth_req = ESP_LE_AUTH_REQ_SC_BOND;
+    esp_ble_io_cap_t io_cap = ESP_IO_CAP_NONE;
+    uint8_t key_size = 16;
+    uint8_t key_mask = ESP_BLE_ENC_KEY_MASK | ESP_BLE_ID_KEY_MASK;
+    esp_ble_gap_set_security_param(ESP_BLE_SM_AUTHEN_REQ_MODE, &auth_req, sizeof(auth_req));
+    esp_ble_gap_set_security_param(ESP_BLE_SM_IOCAP_MODE, &io_cap, sizeof(io_cap));
+    esp_ble_gap_set_security_param(ESP_BLE_SM_MAX_KEY_SIZE, &key_size, sizeof(key_size));
+    esp_ble_gap_set_security_param(ESP_BLE_SM_SET_INIT_KEY, &key_mask, sizeof(key_mask));
+    esp_ble_gap_set_security_param(ESP_BLE_SM_SET_RSP_KEY, &key_mask, sizeof(key_mask));
+    ESP_LOGI(TAG, "OBDLink CX: security configured; FFF1 subscription will initiate pairing");
 }
 
 static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_ble_gattc_cb_param_t *param);
@@ -1424,6 +1498,16 @@ void elm327_ble_init_and_start(const char *target_name, const elm327_ble_callbac
     if (target_name && target_name[0]) {
         strncpy(s_target_name, target_name, sizeof(s_target_name)-1);
         s_target_name[sizeof(s_target_name)-1] = '\0';
+    }
+
+    // app_main starts the stack before loading the saved OBD target. Do not
+    // register a second GATTC app when the target is supplied later.
+    if (s_ble_inited) {
+        if (s_target_bda_valid && !s_scan_only_mode && !s_connected &&
+            !s_ota_paused && s_gattc_if != ESP_GATT_IF_NONE) {
+            start_scan();
+        }
+        return;
     }
 
     esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
@@ -1520,6 +1604,27 @@ static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param
     racechrono_ble_diy_handle_gap_event(event, param);
 
     switch (event) {
+    case ESP_GAP_BLE_SEC_REQ_EVT:
+        if (s_connected && s_obdlink_cx_uart &&
+            memcmp(param->ble_security.ble_req.bd_addr, s_peer_bda, sizeof(esp_bd_addr_t)) == 0) {
+            ESP_LOGI(TAG, "OBDLink CX: accepting BLE security request");
+            esp_ble_gap_security_rsp(param->ble_security.ble_req.bd_addr, true);
+        }
+        break;
+    case ESP_GAP_BLE_AUTH_CMPL_EVT:
+        if (s_connected && s_obdlink_cx_uart &&
+            memcmp(param->ble_security.auth_cmpl.bd_addr, s_peer_bda, sizeof(esp_bd_addr_t)) == 0) {
+            s_obdlink_cx_secure = param->ble_security.auth_cmpl.success;
+            if (s_obdlink_cx_secure) {
+                ESP_LOGI(TAG, "OBDLink CX: encrypted BLE session ready");
+                enable_notify_if_ready();
+            } else {
+                s_notify_ready = false;
+                ESP_LOGW(TAG, "OBDLink CX: pairing failed, reason=0x%02X",
+                         param->ble_security.auth_cmpl.fail_reason);
+            }
+        }
+        break;
     case ESP_GAP_BLE_SCAN_PARAM_SET_COMPLETE_EVT: {
         // Only auto-start scanning when a target MAC is actually bound. Stack-only inits
         // (no OBD device bound) must not scan: scanning duty-cycles the radio and degrades
@@ -1563,11 +1668,19 @@ static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param
                 ESP_LOGD(TAG, "Scan: name=%s rssi=%d target=%s match=%d",
                          dev_name[0] ? dev_name : "<no-name>", pr->scan_rst.rssi,
                          s_target_name, matched);
-                if (matched) {
+                if (matched && !s_open_pending && !s_connected) {
                     ESP_LOGD(TAG, "Found target %s (dev=%s), connecting...",
                              s_target_name, dev_name[0] ? dev_name : "<no-name>");
                     esp_ble_gap_stop_scanning();
-                    esp_ble_gattc_open(s_gattc_if, pr->scan_rst.bda, pr->scan_rst.ble_addr_type, true);
+                    s_open_pending = true;
+                    s_open_started_us = esp_timer_get_time();
+                    esp_err_t open_err = esp_ble_gattc_open(s_gattc_if, pr->scan_rst.bda,
+                                                              pr->scan_rst.ble_addr_type, true);
+                    if (open_err != ESP_OK) {
+                        s_open_pending = false;
+                        ESP_LOGW(TAG, "OBD GATT open request failed: %s", esp_err_to_name(open_err));
+                        start_scan();
+                    }
                 }
             }
         } else if (pr->scan_rst.search_evt == ESP_GAP_SEARCH_INQ_CMPL_EVT) {
@@ -1603,9 +1716,18 @@ static const char *find_can_id_token(const char *buf, uint16_t id) {
 }
 
 static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_ble_gattc_cb_param_t *param) {
+    // Bluedroid uses one global callback for multiple GATTC apps. Ignore
+    // events from the separate gauge-pairing client.
+    if (event != ESP_GATTC_REG_EVT && gattc_if != s_gattc_if) return;
     switch (event) {
     case ESP_GATTC_REG_EVT: {
+        if (param->reg.app_id != 0) break;
+        if (param->reg.status != ESP_GATT_OK) {
+            ESP_LOGE(TAG, "OBD GATTC registration failed: 0x%02X", param->reg.status);
+            break;
+        }
         s_gattc_if = gattc_if;
+        ESP_LOGI(TAG, "OBD GATTC registered, interface=%d", gattc_if);
         esp_ble_scan_params_t scan_params = {
             .scan_type              = BLE_SCAN_TYPE_ACTIVE,
             .own_addr_type          = BLE_ADDR_TYPE_PUBLIC,
@@ -1618,14 +1740,38 @@ static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_
         break;
     }
     case ESP_GATTC_CONNECT_EVT: {
+        // CONNECT is broadcast to every registered GATT client, including the
+        // separate gauge-pair client. Only the bound OBD peer belongs here.
+        if (!s_target_bda_valid ||
+            memcmp(param->connect.remote_bda, s_target_bda, sizeof(esp_bd_addr_t)) != 0) break;
+        if (s_connected && s_conn_id == param->connect.conn_id) break;
+        s_open_pending = false;
         s_connected = true;
         s_conn_id = param->connect.conn_id;
         memcpy(s_peer_bda, param->connect.remote_bda, sizeof(esp_bd_addr_t));
+        s_notify_registered = false;
+        s_cccd_write_pending = false;
+        s_notify_ready = false;
+        s_notify_wait_started_us = esp_timer_get_time();
+        s_first_rx_log_count = 0;
+        s_have_service = false;
+        s_have_18f0 = false;
+        s_have_ff12 = false;
+        s_char_write_handle = s_char_notify_handle = s_cccd_handle = 0;
+        s_obdlink_cx_uart = false;
+        s_obdlink_cx_secure = false;
+        s_cx_security_requested = false;
+        s_ever_obd_data_this_link = false;
+        s_ever_prompt_this_link = false;
+        ESP_LOGI(TAG, "OBD BLE link connected; discovering UART service");
         if (s_cbs.on_connected) s_cbs.on_connected();
         request_discovery();
         break;
     }
     case ESP_GATTC_OPEN_EVT: {
+        if (!s_target_bda_valid ||
+            memcmp(param->open.remote_bda, s_target_bda, sizeof(esp_bd_addr_t)) != 0) break;
+        s_open_pending = false;
         if (param->open.status != ESP_GATT_OK) {
             ESP_LOGE(TAG, "Open failed status=%d", param->open.status);
             if (!s_ota_paused) start_scan();
@@ -1636,20 +1782,21 @@ static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_
         const esp_gatt_id_t *srvc_id = &param->search_res.srvc_id;
         uint16_t sh = param->search_res.start_handle;
         uint16_t eh = param->search_res.end_handle;
-        if (srvc_id->uuid.len == ESP_UUID_LEN_16) {
+        uint16_t service_uuid = ble_base_uuid16(&srvc_id->uuid);
+        if (service_uuid) {
             ESP_LOGD(TAG, "Service found: UUID=0x%04X handle=%04X~%04X",
-                     srvc_id->uuid.uuid.uuid16, sh, eh);
-            if (srvc_id->uuid.uuid.uuid16 == UUID16_OBD_SERVICE) {
+                     service_uuid, sh, eh);
+            if (service_uuid == UUID16_OBD_SERVICE) {
                 s_have_service = true;
                 s_service_start = sh;
                 s_service_end = eh;
                 ESP_LOGD(TAG, "Target service FFF0 matched");
-            } else if (srvc_id->uuid.uuid.uuid16 == UUID16_OBD_SERVICE_18F0) {
+            } else if (service_uuid == UUID16_OBD_SERVICE_18F0) {
                 s_have_18f0 = true;
                 s_18f0_start = sh;
                 s_18f0_end = eh;
                 ESP_LOGD(TAG, "Target service 18F0 matched (IOS-Vlink OBD)");
-            } else if (srvc_id->uuid.uuid.uuid16 == UUID16_OBD_SERVICE_FF12) {
+            } else if (service_uuid == UUID16_OBD_SERVICE_FF12) {
                 s_have_ff12 = true;
                 s_ff12_start = sh;
                 s_ff12_end = eh;
@@ -1706,10 +1853,30 @@ static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_
             free(chars); break;
         }
 
-        // Print all characteristics and auto-select the write/notify handles
+        // Print all characteristics and auto-select the write/notify handles.
+        // CX is the reverse of common ELM clones: FFF1 notifies, FFF2 writes.
+        bool cx_notify = false;
+        bool cx_write = false;
+        bool cx_write_with_rsp = false;
+        uint16_t cx_notify_handle = 0;
+        uint16_t cx_write_handle = 0;
         ESP_LOGD(TAG, "=== All characteristics (%d) ===", alloc_count);
         for (int i = 0; i < alloc_count; i++) {
             esp_gattc_char_elem_t *c = &chars[i];
+            uint16_t char_uuid = ble_base_uuid16(&c->uuid);
+            if (s_have_service) {
+                if (char_uuid == UUID16_CX_NOTIFY_CHAR &&
+                    (c->properties & ESP_GATT_CHAR_PROP_BIT_NOTIFY)) {
+                    cx_notify = true;
+                    cx_notify_handle = c->char_handle;
+                }
+                if (char_uuid == UUID16_CX_WRITE_CHAR &&
+                    (c->properties & (ESP_GATT_CHAR_PROP_BIT_WRITE | ESP_GATT_CHAR_PROP_BIT_WRITE_NR))) {
+                    cx_write = true;
+                    cx_write_handle = c->char_handle;
+                    cx_write_with_rsp = (c->properties & ESP_GATT_CHAR_PROP_BIT_WRITE) != 0;
+                }
+            }
             if (c->uuid.len == ESP_UUID_LEN_16) {
                 ESP_LOGD(TAG, "  [%d] UUID=0x%04X handle=0x%04X prop=0x%02X",
                          i, c->uuid.uuid.uuid16, c->char_handle, c->properties);
@@ -1739,6 +1906,13 @@ static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_
             }
         }
         free(chars);
+        s_obdlink_cx_uart = cx_notify && cx_write;
+        if (s_obdlink_cx_uart) {
+            s_char_notify_handle = cx_notify_handle;
+            s_char_write_handle = cx_write_handle;
+            // Prefer acknowledged writes when offered, so GATT failures are visible.
+            s_write_type = cx_write_with_rsp ? ESP_GATT_WRITE_TYPE_RSP : ESP_GATT_WRITE_TYPE_NO_RSP;
+        }
 
         if (s_char_write_handle == 0) {
             ESP_LOGE(TAG, "No WRITE characteristic found! Cannot send commands.");
@@ -1749,10 +1923,14 @@ static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_
             s_char_notify_handle = s_char_write_handle;
             ESP_LOGD(TAG, "No NOTIFY char found, using WRITE handle 0x%04X for notify", s_char_notify_handle);
         }
+        ESP_LOGI(TAG, "OBD UART handles: write=0x%04X notify=0x%04X CX=%d",
+                 s_char_write_handle, s_char_notify_handle, s_obdlink_cx_uart);
+
+        if (s_obdlink_cx_uart) prepare_obdlink_cx_security();
 
         // Register for notifications
         int sret = esp_ble_gattc_register_for_notify(gattc_if, s_peer_bda, s_char_notify_handle);
-        ESP_LOGD(TAG, "register_for_notify handle=0x%04X ret=%d", s_char_notify_handle, sret);
+        ESP_LOGI(TAG, "OBD notification registration requested: %s", esp_err_to_name(sret));
 
         // Find the CCCD
         esp_gattc_descr_elem_t descr_elems[2];
@@ -1766,15 +1944,42 @@ static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_
         } else {
             ESP_LOGW(TAG, "CCCD not found (ret=%d cnt=%d)", ret, count);
         }
-        enable_notify_if_ready();
         break;
     }
-    case ESP_GATTC_WRITE_DESCR_EVT: {
-        if (param->write.status == ESP_GATT_OK) {
-            ESP_LOGD(TAG, "Notifications enabled");
-            s_notify_ready = true;   // subscription ready → let the poll task proceed with ELM init
+    case ESP_GATTC_REG_FOR_NOTIFY_EVT:
+        if (param->reg_for_notify.status == ESP_GATT_OK &&
+            param->reg_for_notify.handle == s_char_notify_handle) {
+            s_notify_registered = true;
+            ESP_LOGI(TAG, "OBD notification registration complete");
+            enable_notify_if_ready();
         } else {
-            ESP_LOGW(TAG, "Enable notify failed status=%d", param->write.status);
+            ESP_LOGW(TAG, "OBD notification registration failed, status=%d",
+                     param->reg_for_notify.status);
+        }
+        break;
+    case ESP_GATTC_WRITE_DESCR_EVT: {
+        if (param->write.conn_id != s_conn_id || param->write.handle != s_cccd_handle) break;
+        s_cccd_write_pending = false;
+        if (param->write.status == ESP_GATT_OK) {
+            ESP_LOGI(TAG, "OBD notifications enabled; starting ELM initialization");
+            s_notify_ready = true;   // subscription ready → let the poll task proceed with ELM init
+            s_notify_wait_started_us = 0;
+        } else {
+            ESP_LOGW(TAG, "Enable notify failed status=0x%02X", param->write.status);
+            if (s_obdlink_cx_uart &&
+                (param->write.status == ESP_GATT_INSUF_AUTHENTICATION ||
+                 param->write.status == ESP_GATT_INSUF_ENCRYPTION ||
+                 param->write.status == ESP_GATT_INSUF_KEY_SIZE ||
+                 param->write.status == ESP_GATT_AUTH_FAIL)) {
+                if (s_obdlink_cx_secure) {
+                    enable_notify_if_ready();
+                } else if (!s_cx_security_requested) {
+                    s_cx_security_requested = true;
+                    esp_err_t err = esp_ble_set_encryption(s_peer_bda, ESP_BLE_SEC_ENCRYPT);
+                    ESP_LOGI(TAG, "OBDLink CX: GATT security challenge; requesting encryption (%s)",
+                             esp_err_to_name(err));
+                }
+            }
         }
         break;
     }
@@ -1782,6 +1987,18 @@ static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_
         if (s_cbs.on_raw_notify) s_cbs.on_raw_notify(param->notify.value, param->notify.value_len);
         const uint8_t *v = param->notify.value;
         int n = param->notify.value_len;
+        // A bounded escaped sample helps distinguish GATT success from an ELM
+        // prompt/ECU response during a phone-only road test.
+        if (s_first_rx_log_count < 6 && n > 0) {
+            char sample[65];
+            int sample_n = n < 64 ? n : 64;
+            for (int i = 0; i < sample_n; i++) {
+                unsigned char ch = v[i];
+                sample[i] = (ch >= 0x20 && ch <= 0x7e) ? (char)ch : ' ';
+            }
+            sample[sample_n] = 0;
+            ESP_LOGI(TAG, "OBD RX[%u] len=%d: %s", ++s_first_rx_log_count, n, sample);
+        }
 
         // CAN continuous monitor mode: feed byte-wise, parse line-wise, bypass the accumulation buffer
         if (s_zc6_can_monitor_active) {
@@ -1941,7 +2158,7 @@ static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_
 
                 // During protocol detection, only handle RPM (0x0C)
                 if (s_protocol_detect_idx >= 0 && pid != 0x0C) {
-                    break;  // skip non-target PIDs
+                    goto response_done;  // skip non-target PIDs, but release response buffer
                 }
 
                 switch (pid) {
@@ -2186,6 +2403,7 @@ static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_
             }
         }
 
+        response_done:
         // Clear the accumulation buffer after a full response
         s_accum_len = 0;
         s_accum_buf[0] = '\0';
@@ -2199,8 +2417,18 @@ static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_
         break;
     }
     case ESP_GATTC_DISCONNECT_EVT: {
+        if (!s_connected || param->disconnect.conn_id != s_conn_id ||
+            memcmp(param->disconnect.remote_bda, s_peer_bda, sizeof(esp_bd_addr_t)) != 0) break;
+        ESP_LOGI(TAG, "OBD BLE link disconnected (reason=0x%02X)", param->disconnect.reason);
         s_connected = false;
+        s_open_pending = false;
+        s_notify_wait_started_us = 0;
         s_notify_ready = false;   // disconnect → notifications invalid; must re-subscribe + re-init after reconnect
+        s_notify_registered = false;
+        s_cccd_write_pending = false;
+        s_obdlink_cx_uart = false;
+        s_obdlink_cx_secure = false;
+        s_cx_security_requested = false;
         s_elm_ready = true;       // release any blocking send wait immediately (no '>' will ever arrive)
         if (s_poll_task_handle) xTaskNotify(s_poll_task_handle, 0, eNoAction); // wake the poll task so it sees the disconnect without waiting up to 3s
         s_conn_id = 0xFFFF;
@@ -2355,7 +2583,12 @@ bool elm327_ble_is_connected(void) {
 }
 
 void elm327_ble_disconnect(void) {
-    if (s_connected && s_gattc_if != 0 && s_conn_id != 0xFFFF) {
+    // Called when the saved adapter is removed. Clear the in-memory target as
+    // well, so the disconnect callback does not immediately reconnect it.
+    s_target_bda_valid = false;
+    s_open_pending = false;
+    esp_ble_gap_stop_scanning();
+    if (s_connected && s_gattc_if != ESP_GATT_IF_NONE && s_conn_id != 0xFFFF) {
         ESP_LOGD(TAG, "Disconnecting from BLE device...");
         esp_ble_gattc_close(s_gattc_if, s_conn_id);
     }

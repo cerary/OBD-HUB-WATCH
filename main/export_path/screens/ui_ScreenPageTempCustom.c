@@ -41,7 +41,11 @@ static void create_row(lv_obj_t *parent, int idx, const char *title, lv_coord_t 
     lv_roller_set_options(s_temp_rollers[idx], k_data_options, LV_ROLLER_MODE_NORMAL);
     lv_roller_set_visible_row_count(s_temp_rollers[idx], 1);
     lv_obj_set_width(s_temp_rollers[idx], 170);
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    lv_obj_set_height(s_temp_rollers[idx], 44);
+#else
     lv_obj_set_height(s_temp_rollers[idx], 42);
+#endif
     lv_obj_set_style_text_font(s_temp_rollers[idx], &ui_font_FontTypoderSize20, LV_PART_MAIN);
     lv_obj_set_style_text_font(s_temp_rollers[idx], &ui_font_FontTypoderSize20, LV_PART_SELECTED);
     lv_obj_set_style_bg_color(s_temp_rollers[idx], lv_color_hex(0x222222), LV_PART_MAIN);
@@ -53,6 +57,7 @@ static void create_row(lv_obj_t *parent, int idx, const char *title, lv_coord_t 
     lv_obj_set_style_radius(s_temp_rollers[idx], 8, LV_PART_SELECTED);   // round the white selected band too, it was spilling square past the corners
     lv_obj_align(s_temp_rollers[idx], LV_ALIGN_CENTER, 34, y);
     lv_obj_add_event_cb(s_temp_rollers[idx], on_temp_map_changed, LV_EVENT_VALUE_CHANGED, (void *)idx);
+    ui_helpers_enable_option_feedback(s_temp_rollers[idx]);
 }
 
 void ui_ScreenPageTempCustom_screen_init(void)

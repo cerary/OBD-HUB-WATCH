@@ -18,7 +18,7 @@ typedef struct {
     uint8_t protocol;      // OBD protocol: 0=auto, 1~9=fixed
     theme_cfg_t theme_cfg;   // theme config
     char    ble_device_name[32]; // last connected BLE device name, empty = not configured
-    uint8_t default_page;   // default boot page: 0=Temp, 1=Info, 2=Chart, 3=Needle, 4=Gear, 5=RPM, 6=Speed
+    uint8_t default_page;   // default boot page: 0=Temp, 1=Info, 2=Chart, 3=Needle, 4=Gear, 5=RPM, 6=Speed, 7=G-force, 8=expression (StopWatch)
     uint8_t brightness_day; // brightness 10-100, 0=unset (use 100)
     uint8_t vehicle_profile_idx; // vehicle profile index, 0=OBD2 Generic (full list in vehicle_profiles.c)
     uint16_t brake_temp_warn_c; // brake temp warning threshold, °C (x1)
@@ -39,6 +39,13 @@ typedef struct {
     uint8_t rc_enabled;          // RaceChrono BLE service: 0=off (minimal mode), 1=on (full RC+Pair+Info+OTA)
                                  // NOTE: new fields MUST be appended at the END of this struct;
                                  // see the load_blob grow logic comment in nvs_storage.c.
+    uint8_t g_cal_valid;         // StopWatch G page: 1 after a stationary IMU calibration
+    uint8_t g_front_mode;        // 0=display faces driver, 1=display faces windshield, 2=top edge points forward
+    float g_zero[3];             // resting 3D acceleration (gravity, in display coordinates)
+    float g_axis_right[3];       // calibrated vehicle-right basis vector
+    float g_axis_forward[3];     // calibrated vehicle-forward basis vector
+    uint8_t touch_haptic_enabled; // StopWatch touch-release vibration, default on
+    uint8_t touch_sound_enabled;  // StopWatch touch-release confirmation tone, default off
 } nvs_user_cfg_t;
 
 /*------------------ Runtime statistics (persisted periodically) ------------------*/

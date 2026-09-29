@@ -7,6 +7,7 @@
 #include "ui_helpers.h"
 #include "ui_ext.h"
 #include "ui_disp_item.h"
+#include "ui_display_filter.h"
 #include "ui_theme.h"
 #include "theme_engine/theme_interface.h"
 #include "app_obd_dsp/app_event.h"
@@ -134,12 +135,16 @@ extern lv_obj_t * ui_ScreenPageInfo;
 // SCREEN: ui_ScreenPageInfoCustom
 void ui_ScreenPageInfoCustom_screen_init(void);
 lv_obj_t * ui_ScreenPageInfoCustom;
+lv_obj_t * ui_ScreenPageGForce;
+lv_obj_t * ui_ScreenPageGForceCal;
+lv_obj_t * ui_ScreenPageExpression;
 // labels defined in ui_ScreenPageInfo.c
 // CUSTOM VARIABLES
 
 // SCREEN: ui_ScreenPageSettings
 void ui_ScreenPageSettings_screen_init(void);
 lv_obj_t * ui_ScreenPageSettings;
+lv_obj_t * ui_ScreenPageFeedback;
 // CUSTOM VARIABLES
 
 // SCREEN: ui_ScreenPageOilWarn
@@ -523,6 +528,7 @@ void my_timerMain(lv_timer_t * timer)
 
     static uint16_t usRpm = 0;
     static uint16_t ucSpeed = 0;  // uint16_t so sweep can reach 999
+    uint16_t rpm_for_warning = usRpm;
     static enGear eGear = GEAR_NEUTRAL;
     static bool  s_gear_unknown = false;   // OBD-gear profile can't read a valid gear → show "--" (no ratio-calc fallback)
     // rpm flash state (red/black toggle, strobing flag, linked ramp) moved to ui_ext.c
@@ -557,22 +563,29 @@ void my_timerMain(lv_timer_t * timer)
     bool live_data_screen = ui_screen_updates_live_data(scr);
     bool rpm_warn_possible = ui_ext_rpm_warn_possible();
 
+    if (IN_SWEEP || (!ble_now && !ui_ext_showroom_is_active())) {
+        ui_display_filter_reset();
+    }
+
     if (!IN_SWEEP && (live_data_screen || rpm_warn_possible || ui_ext_rpm_is_flashing() || ui_ext_rpm_link_ramp_active())) {
         obd_data_snapshot_t obd;
+        obd_data_snapshot_t display;
 
         obd_data_get_snapshot(&obd);
-        clt       = obd.coolant_temp;
-        iat       = obd.intake_temp;
-        oil       = obd.oil_temp;      // real oil temperature °C (SSM 22 10 17), -100=invalid
-        oilp_x10  = obd.oil_pressure_x10; // oil pressure 0.1bar, -1=invalid
-        brake_x10 = obd.brake_temp_x10; // brake temperature 0.1°C
-        load_pct  = obd.load_pct;      // engine load 0~100%, -1=invalid
-        tps       = obd.tps;
-        bat_mv    = obd.bat_mv;
-        boost_x10 = obd.boost_x10; // boost gauge pressure 0.1bar, -32768=invalid
-        afr_x100  = obd.afr_x100;   // air-fuel ratio ×100, -1=invalid
-        usRpm     = obd.rpm;
-        ucSpeed   = obd.speed;
+        rpm_for_warning = obd.rpm;
+        ui_display_filter_apply(&obd, &display, lv_tick_get());
+        clt       = display.coolant_temp;
+        iat       = display.intake_temp;
+        oil       = display.oil_temp;      // real oil temperature °C (SSM 22 10 17), -100=invalid
+        oilp_x10  = display.oil_pressure_x10; // oil pressure 0.1bar, -1=invalid
+        brake_x10 = display.brake_temp_x10; // brake temperature 0.1°C
+        load_pct  = display.load_pct;      // engine load 0~100%, -1=invalid
+        tps       = display.tps;
+        bat_mv    = display.bat_mv;
+        boost_x10 = display.boost_x10; // boost gauge pressure 0.1bar, -32768=invalid
+        afr_x100  = display.afr_x100;   // air-fuel ratio ×100, -1=invalid
+        usRpm     = display.rpm;
+        ucSpeed   = display.speed;
         int8_t decoded_gear = obd.gear;
         if (decoded_gear >= 0 && decoded_gear <= GEAR_8) {
             eGear = (enGear)decoded_gear;
@@ -581,7 +594,7 @@ void my_timerMain(lv_timer_t * timer)
             // OBD gear profile: no RPM/speed ratio fallback — show "--" until a valid gear arrives
             s_gear_unknown = true;
         } else {
-            eGear = calculate_gear(usRpm, ucSpeed);
+            eGear = calculate_gear(obd.rpm, obd.speed);
             s_gear_unknown = false;
         }
     }
@@ -632,7 +645,7 @@ void my_timerMain(lv_timer_t * timer)
                                  usRpm, ucSpeed, tps, eGear, s_gear_unknown);
         theme_update_data(&theme_snap);
     }
-    /*RPM page: direct output, no animation delay (CAN 100Hz data is already clean)*/
+    /*RPM page: the shared display filter handles jitter; keep the digits and arc in sync.*/
     if (scr == ui_ScreenPageRpm) {
         static int32_t s_last_rpm = -1;
         if ((int32_t)usRpm != s_last_rpm) {
@@ -862,7 +875,7 @@ void my_timerMain(lv_timer_t * timer)
     ui_ext_intro_tick(is_slave);
 
     /* ---- RPM over-limit flash warning (migrated to ui_ext.c) ---- */
-    ui_ext_rpm_flash_tick(usRpm, IN_SWEEP);
+    ui_ext_rpm_flash_tick(rpm_for_warning, IN_SWEEP);
 
     if (!ui_ext_showroom_is_active()) {
         ui_ext_no_signal_update(ble_now);   // showroom mode is a fake-data demo, no NO SIGNAL hint
@@ -913,6 +926,78 @@ void ui_event_logo_background(lv_event_t * e)
         ESP_LOGD(TAG, "Logo LV_EVENT_CLICKED");
     }   
 }
+
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+// Physical page buttons follow the same horizontal route as the touch carousel.
+// Subpages return to their parent, just as a horizontal swipe does.
+bool ui_stopwatch_button_navigate(bool next)
+{
+    lv_obj_t *screen = lv_scr_act();
+#define BUTTON_GO(name) do { \
+    _ui_screen_change(&ui_ScreenPage##name, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0, \
+                      &ui_ScreenPage##name##_screen_init); \
+    return true; \
+} while (0)
+
+    if (screen == ui_ScreenPageGear)       { if (next) BUTTON_GO(Rpm); else BUTTON_GO(EasterEgg); }
+    if (screen == ui_ScreenPageRpm)        { if (next) BUTTON_GO(Speed); else BUTTON_GO(Gear); }
+    if (screen == ui_ScreenPageSpeed)      { if (next) BUTTON_GO(Temp); else BUTTON_GO(Rpm); }
+    if (screen == ui_ScreenPageTemp)       { if (next) BUTTON_GO(Info); else BUTTON_GO(Speed); }
+    if (screen == ui_ScreenPageInfo)       { if (next) BUTTON_GO(GForce); else BUTTON_GO(Temp); }
+    if (screen == ui_ScreenPageGForce)     { if (next) BUTTON_GO(Expression); else BUTTON_GO(Info); }
+    if (screen == ui_ScreenPageExpression) { if (next) BUTTON_GO(Needle); else BUTTON_GO(GForce); }
+    if (screen == ui_ScreenPageNeedle)     { if (next) BUTTON_GO(OilPressure); else BUTTON_GO(Expression); }
+    if (screen == ui_ScreenPageOilPressure){ if (next) BUTTON_GO(EasterEgg); else BUTTON_GO(Needle); }
+
+    if (screen == ui_ScreenPageEasterEgg) {
+        uint8_t count = theme_page_list_count();
+        if (count > 0) {
+            ui_theme_gauge_page_index = next ? 0 : count - 1;
+            if (ui_ScreenPageThemeGauge) {
+                lv_obj_del(ui_ScreenPageThemeGauge);
+                ui_ScreenPageThemeGauge = NULL;
+            }
+            BUTTON_GO(ThemeGauge);
+        }
+        BUTTON_GO(Gear);
+    }
+    if (screen == ui_ScreenPageThemeGauge) {
+        uint8_t count = theme_page_list_count();
+        if (next && ui_theme_gauge_page_index + 1 < count) {
+            ++ui_theme_gauge_page_index;
+        } else if (!next && ui_theme_gauge_page_index > 0) {
+            --ui_theme_gauge_page_index;
+        } else {
+            BUTTON_GO(EasterEgg);
+        }
+        lv_obj_t *old_theme_page = ui_ScreenPageThemeGauge;
+        ui_ScreenPageThemeGauge = NULL;
+        _ui_screen_change(&ui_ScreenPageThemeGauge, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0,
+                          &ui_ScreenPageThemeGauge_screen_init);
+        // The active theme page is recreated for a different page index.
+        // Release the old screen after loading its replacement.
+        if (old_theme_page) lv_obj_del(old_theme_page);
+        return true;
+    }
+
+    if (screen == ui_ScreenPageGForceCal)  BUTTON_GO(GForce);
+    if (screen == ui_ScreenPageTempCustom) BUTTON_GO(Temp);
+    if (screen == ui_ScreenPageInfoCustom) BUTTON_GO(Info);
+    if (screen == ui_ScreenPageNeedleConfig) BUTTON_GO(Needle);
+    if (screen == ui_ScreenPageChartConfig || screen == ui_ScreenPageChartAlarm ||
+        screen == ui_ScreenPageOilWarn) BUTTON_GO(OilPressure);
+    if (screen == ui_ScreenPageRpmWarn) BUTTON_GO(Rpm);
+    if (screen == ui_ScreenPageSettings || screen == ui_ScreenPageODBProtocal) BUTTON_GO(EasterEgg);
+    if (screen == ui_ScreenPageMultiGauge || screen == ui_ScreenPageFeedback) BUTTON_GO(Settings);
+    if (screen == ui_ScreenPageBLEScan) {
+        if (nvs_cfg_get()->device_role == ESPNOW_ROLE_SLAVE) gauge_pair_ble_scan_stop();
+        else elm327_ble_scan_only_stop();
+        BUTTON_GO(EasterEgg);
+    }
+#undef BUTTON_GO
+    return false; // boot and OTA screens have their own controls
+}
+#endif
 
 // The Gear/RPM/Speed pages sit at the front of the carousel: Gear→RPM→Speed→Temp→… (swipe left = next / swipe right = previous)
 // Swipe down from Gear enters the theme-provided gauge page (only if the active theme declares one).
@@ -1127,7 +1212,11 @@ void ui_event_needle_background(lv_event_t * e)
         }
         else if(dir == LV_DIR_RIGHT){
             lv_indev_wait_release(lv_indev_get_act());
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+            _ui_screen_change(&ui_ScreenPageExpression, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0, &ui_ScreenPageExpression_screen_init);
+#else
             _ui_screen_change(&ui_ScreenPageInfo, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0, &ui_ScreenPageInfo_screen_init);
+#endif
         }
         else if(dir == LV_DIR_LEFT){
             lv_indev_wait_release(lv_indev_get_act());
@@ -1157,13 +1246,50 @@ void ui_event_info_background(lv_event_t * e)
         }
         else if(dir == LV_DIR_LEFT) {
             lv_indev_wait_release(lv_indev_get_act());
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+            _ui_screen_change(&ui_ScreenPageGForce, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0, &ui_ScreenPageGForce_screen_init);
+#else
             _ui_screen_change(&ui_ScreenPageNeedle, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0, &ui_ScreenPageNeedle_screen_init);
+#endif
         }
         else if(dir == LV_DIR_BOTTOM) {
             lv_indev_wait_release(lv_indev_get_act());
             _ui_screen_change(&ui_ScreenPageInfoCustom, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0, &ui_ScreenPageInfoCustom_screen_init);
         }
     }
+}
+
+void ui_event_gforce_background(lv_event_t * e)
+{
+    if (lv_event_get_code(e) != LV_EVENT_GESTURE) return;
+    lv_dir_t dir = lv_indev_get_gesture_dir(lv_indev_get_act());
+    lv_indev_wait_release(lv_indev_get_act());
+    if (dir == LV_DIR_RIGHT)
+        _ui_screen_change(&ui_ScreenPageInfo, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0, &ui_ScreenPageInfo_screen_init);
+    else if (dir == LV_DIR_LEFT)
+        _ui_screen_change(&ui_ScreenPageExpression, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0, &ui_ScreenPageExpression_screen_init);
+    else if (dir == LV_DIR_BOTTOM)
+        _ui_screen_change(&ui_ScreenPageGForceCal, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0, &ui_ScreenPageGForceCal_screen_init);
+}
+
+void ui_event_expression_background(lv_event_t * e)
+{
+    if (lv_event_get_code(e) != LV_EVENT_GESTURE) return;
+    lv_dir_t dir = lv_indev_get_gesture_dir(lv_indev_get_act());
+    lv_indev_wait_release(lv_indev_get_act());
+    if (dir == LV_DIR_RIGHT)
+        _ui_screen_change(&ui_ScreenPageGForce, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0, &ui_ScreenPageGForce_screen_init);
+    else if (dir == LV_DIR_LEFT)
+        _ui_screen_change(&ui_ScreenPageNeedle, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0, &ui_ScreenPageNeedle_screen_init);
+    else if (dir == LV_DIR_BOTTOM)
+        _ui_screen_change(&ui_ScreenPageGForceCal, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0, &ui_ScreenPageGForceCal_screen_init);
+}
+
+void ui_event_gforce_cal_background(lv_event_t * e)
+{
+    if (lv_event_get_code(e) != LV_EVENT_GESTURE) return;
+    lv_indev_wait_release(lv_indev_get_act());
+    _ui_screen_change(&ui_ScreenPageGForce, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0, &ui_ScreenPageGForce_screen_init);
 }
 
 void ui_event_info_custom_background(lv_event_t * e)
@@ -1388,7 +1514,20 @@ void ui_event_settings_background(lv_event_t * e)
             lv_indev_wait_release(lv_indev_get_act());
             _ui_screen_change(&ui_ScreenPageMultiGauge, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0, &ui_ScreenPageMultiGauge_screen_init);
         }
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+        else if(dir == LV_DIR_TOP){
+            lv_indev_wait_release(lv_indev_get_act());
+            _ui_screen_change(&ui_ScreenPageFeedback, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0, &ui_ScreenPageFeedback_screen_init);
+        }
+#endif
     }
+}
+
+void ui_event_feedback_background(lv_event_t * e)
+{
+    if (lv_event_get_code(e) != LV_EVENT_GESTURE) return;
+    lv_indev_wait_release(lv_indev_get_act());
+    _ui_screen_change(&ui_ScreenPageSettings, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0, &ui_ScreenPageSettings_screen_init);
 }
 
 // Triple-gauge settings page gestures: swipe up/left/right → return to the settings page

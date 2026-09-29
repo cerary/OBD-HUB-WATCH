@@ -1,6 +1,21 @@
 // RPM warning threshold + animation toggle page (swipe down from RPM page)
 
 #include "../ui.h"
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+#define WARN_FLASH_Y 70
+#define WARN_LINKED_Y 122
+#define WARN_TEST_Y 174
+#define WARN_TEST_SOLO_Y 150
+#define WARN_TOGGLE_X 78
+#define WARN_LABEL_X -75
+#else
+#define WARN_FLASH_Y 70
+#define WARN_LINKED_Y 102
+#define WARN_TEST_Y 134
+#define WARN_TEST_SOLO_Y 118
+#define WARN_TOGGLE_X 60
+#define WARN_LABEL_X -50
+#endif
 #include "bsp_obd_dsp/nvs_storage.h"
 #include "bsp_obd_dsp/espnow_link.h"
 
@@ -140,6 +155,9 @@ void ui_ScreenPageRpmWarn_screen_init(void)
     lv_slider_set_value(s_slider_rpm_warn, thresh, LV_ANIM_OFF);
     lv_obj_set_width(s_slider_rpm_warn, 220);
     lv_obj_set_height(s_slider_rpm_warn, 12);
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    lv_obj_set_ext_click_area(s_slider_rpm_warn, 17);
+#endif
     lv_obj_align(s_slider_rpm_warn, LV_ALIGN_CENTER, 0, 16);
     lv_obj_set_style_bg_color(s_slider_rpm_warn, lv_color_hex(0x333333), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(s_slider_rpm_warn, 255, LV_PART_MAIN);
@@ -149,12 +167,19 @@ void ui_ScreenPageRpmWarn_screen_init(void)
     lv_obj_set_style_pad_all(s_slider_rpm_warn, 6, LV_PART_KNOB);
     lv_obj_clear_flag(s_slider_rpm_warn, LV_OBJ_FLAG_GESTURE_BUBBLE);
     lv_obj_add_event_cb(s_slider_rpm_warn, on_rpm_warn_slider_change, LV_EVENT_VALUE_CHANGED, NULL);
+    ui_helpers_enable_option_feedback(s_slider_rpm_warn);
 
     lv_obj_t *range = lv_label_create(ui_ScreenPageRpmWarn);
     lv_label_set_text(range, "1000 - 8000 rpm");
     lv_obj_set_style_text_font(range, &ui_font_FontTypoderSize16, LV_PART_MAIN);
     lv_obj_set_style_text_color(range, lv_color_hex(0x777777), LV_PART_MAIN);
-    lv_obj_align(range, LV_ALIGN_CENTER, 0, 48);
+    lv_obj_align(range, LV_ALIGN_CENTER, 0,
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+                 32
+#else
+                 48
+#endif
+                 );
 
     bool is_standalone = (cfg->device_role == ESPNOW_ROLE_STANDALONE);
 
@@ -163,12 +188,16 @@ void ui_ScreenPageRpmWarn_screen_init(void)
     lv_label_set_text(anim_label, "FLASH ANIM");
     lv_obj_set_style_text_font(anim_label, &ui_font_FontTypoderSize16, LV_PART_MAIN);
     lv_obj_set_style_text_color(anim_label, lv_color_hex(0xAAAAAA), LV_PART_MAIN);
-    lv_obj_align(anim_label, LV_ALIGN_CENTER, -50, 70);
+    lv_obj_align(anim_label, LV_ALIGN_CENTER, WARN_LABEL_X, WARN_FLASH_Y);
 
     s_btn_anim_toggle = lv_btn_create(ui_ScreenPageRpmWarn);
     lv_obj_set_style_clip_corner(s_btn_anim_toggle, true, 0);
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    lv_obj_set_size(s_btn_anim_toggle, 84, 44);
+#else
     lv_obj_set_size(s_btn_anim_toggle, 70, 32);
-    lv_obj_align(s_btn_anim_toggle, LV_ALIGN_CENTER, 60, 70);
+#endif
+    lv_obj_align(s_btn_anim_toggle, LV_ALIGN_CENTER, WARN_TOGGLE_X, WARN_FLASH_Y);
     lv_obj_set_style_bg_color(s_btn_anim_toggle, lv_color_hex(0x333333), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(s_btn_anim_toggle, 255, LV_PART_MAIN);
     lv_obj_set_style_border_width(s_btn_anim_toggle, 1, LV_PART_MAIN);
@@ -189,12 +218,16 @@ void ui_ScreenPageRpmWarn_screen_init(void)
         lv_label_set_text(linked_label, "LINKED FLASH");
         lv_obj_set_style_text_font(linked_label, &ui_font_FontTypoderSize16, LV_PART_MAIN);
         lv_obj_set_style_text_color(linked_label, lv_color_hex(0xAAAAAA), LV_PART_MAIN);
-        lv_obj_align(linked_label, LV_ALIGN_CENTER, -50, 102);
+        lv_obj_align(linked_label, LV_ALIGN_CENTER, WARN_LABEL_X, WARN_LINKED_Y);
 
         lv_obj_t *btn_linked = lv_btn_create(ui_ScreenPageRpmWarn);
     lv_obj_set_style_clip_corner(btn_linked, true, 0);
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+        lv_obj_set_size(btn_linked, 84, 44);
+#else
         lv_obj_set_size(btn_linked, 70, 32);
-        lv_obj_align(btn_linked, LV_ALIGN_CENTER, 60, 102);
+#endif
+        lv_obj_align(btn_linked, LV_ALIGN_CENTER, WARN_TOGGLE_X, WARN_LINKED_Y);
         lv_obj_set_style_bg_color(btn_linked, lv_color_hex(0x333333), LV_PART_MAIN);
         lv_obj_set_style_bg_opa(btn_linked, 255, LV_PART_MAIN);
         lv_obj_set_style_border_width(btn_linked, 1, LV_PART_MAIN);
@@ -213,8 +246,12 @@ void ui_ScreenPageRpmWarn_screen_init(void)
     // TEST button: one tap triggers the ~2s flash test
     lv_obj_t *btn_test = lv_btn_create(ui_ScreenPageRpmWarn);
     lv_obj_set_style_clip_corner(btn_test, true, 0);
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    lv_obj_set_size(btn_test, 112, 44);
+#else
     lv_obj_set_size(btn_test, 100, 32);
-    lv_obj_align(btn_test, LV_ALIGN_CENTER, 0, is_standalone ? 118 : 134);
+#endif
+    lv_obj_align(btn_test, LV_ALIGN_CENTER, 0, is_standalone ? WARN_TEST_SOLO_Y : WARN_TEST_Y);
     lv_obj_set_style_bg_color(btn_test, lv_color_hex(0xFF4D4D), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(btn_test, 255, LV_PART_MAIN);
     lv_obj_set_style_radius(btn_test, 8, LV_PART_MAIN);
@@ -226,11 +263,13 @@ void ui_ScreenPageRpmWarn_screen_init(void)
     lv_obj_set_style_text_color(lbl_test, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
     lv_obj_center(lbl_test);
 
+#if !CONFIG_OBD_HW_VERSION_M5STOPWATCH
     lv_obj_t *hint = lv_label_create(ui_ScreenPageRpmWarn);
     lv_label_set_text(hint, "Swipe up to go back");
     lv_obj_set_style_text_font(hint, &lv_font_montserrat_12, LV_PART_MAIN);
     lv_obj_set_style_text_color(hint, lv_color_hex(0x555555), LV_PART_MAIN);
     lv_obj_align(hint, LV_ALIGN_CENTER, 0, is_standalone ? 148 : 156);
+#endif
 
     lv_obj_t *ear = lv_img_create(ui_ScreenPageRpmWarn);
     lv_img_set_src(ear, &ui_img_pngblackear_png);

@@ -153,6 +153,7 @@ lv_color_t ui_helpers_brand_accent_color(void);
 void ui_helpers_style_screen_bg(lv_obj_t * scr);
 
 void ui_helpers_style_dark_roller(lv_obj_t * r, const lv_font_t * font);
+void ui_helpers_enable_option_feedback(lv_obj_t * obj);
 
 #ifdef __cplusplus
 } /*extern "C"*/

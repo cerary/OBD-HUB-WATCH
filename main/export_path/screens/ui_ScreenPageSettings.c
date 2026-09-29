@@ -11,10 +11,15 @@
 #include "esp_system.h"
 
 // Page names for the boot-page roller. Order must match the default-page
-// switch in ui.c. (Brake temp moved into the CHART page.)
-// 0=TEMP 1=INFO 2=CHART 3=NEEDLE 4=GEAR 5=RPM 6=SPEED
+// switch in ui_ext.c. (Brake temp moved into the CHART page.)
+// 0=TEMP 1=INFO 2=CHART 3=NEEDLE 4=GEAR 5=RPM 6=SPEED 7=G-FORCE 8=FACE (StopWatch)
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+static const char *page_names = "TEMP\nINFO\nCHART\nNEEDLE\nGEAR\nRPM\nSPEED\nG-FORCE\nFACE";
+#define BOOT_PAGE_COUNT 9
+#else
 static const char *page_names = "TEMP\nINFO\nCHART\nNEEDLE\nGEAR\nRPM\nSPEED";
 #define BOOT_PAGE_COUNT 7
+#endif
 
 // Local references for settings widgets
 static lv_obj_t *s_roller_page = NULL;
@@ -24,6 +29,8 @@ static lv_obj_t *s_roller_theme = NULL;
 #define VEHICLE_SETTLE_MS 2000
 static lv_timer_t *s_vehicle_restart_timer = NULL;
 static bool s_vehicle_touch_active = false;
+static lv_timer_t *s_theme_restart_timer = NULL;
+static bool s_theme_touch_active = false;
 #endif
 static lv_obj_t *s_slider_bright = NULL;
 static lv_obj_t *s_label_bright_val = NULL;
@@ -33,6 +40,7 @@ static bool s_rc_enabled = false;
 
 #if CONFIG_OBD_HW_VERSION_M5STOPWATCH
 static void restart_after_vehicle_change(lv_timer_t *timer);
+static void restart_after_theme_change(lv_timer_t *timer);
 #endif
 
 // Callbacks
@@ -45,13 +53,23 @@ static void on_page_roller_change(lv_event_t *e)
 
 static void on_bright_slider_change(lv_event_t *e)
 {
+    lv_event_code_t code = lv_event_get_code(e);
     int32_t val = lv_slider_get_value(s_slider_bright);
     if(val < 10) val = 10;
-    lv_label_set_text_fmt(s_label_bright_val, "%ld%%", val);
+    if (code == LV_EVENT_VALUE_CHANGED) {
+        lv_label_set_text_fmt(s_label_bright_val, "%ld%%", val);
+        Set_Backlight((uint8_t)val);
+    }
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    // Preview while dragging, but write flash only after the finger lifts.
+    if (code != LV_EVENT_RELEASED && code != LV_EVENT_PRESS_LOST) return;
+#endif
     nvs_user_cfg_t cfg = *nvs_cfg_get();
     cfg.brightness_day = (uint8_t)val;
     nvs_cfg_set(&cfg);
+#if !CONFIG_OBD_HW_VERSION_M5STOPWATCH
     Set_Backlight((uint8_t)val);
+#endif
 }
 
 static void on_rc_toggle(lv_event_t *e)
@@ -59,6 +77,8 @@ static void on_rc_toggle(lv_event_t *e)
     (void)e;
     s_rc_enabled = !s_rc_enabled;
     lv_label_set_text(s_label_rc, s_rc_enabled ? "ON" : "OFF");
+    lv_obj_set_style_bg_color(s_btn_rc,
+        lv_color_hex(s_rc_enabled ? 0x00AA55 : 0x333333), LV_PART_MAIN);
     lv_obj_set_style_text_color(s_label_rc,
         s_rc_enabled ? lv_color_hex(0x00CC66) : lv_color_hex(0x888888),
         LV_PART_MAIN);
@@ -114,9 +134,31 @@ static void on_vehicle_roller_change(lv_event_t *e)
 // with the new theme colors (screens are created once at boot).
 static void on_theme_roller_change(lv_event_t *e)
 {
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    lv_event_code_t code = lv_event_get_code(e);
+    if (code == LV_EVENT_PRESSED) {
+        s_theme_touch_active = true;
+        if (s_theme_restart_timer) lv_timer_pause(s_theme_restart_timer);
+    } else if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST ||
+               (code == LV_EVENT_VALUE_CHANGED && !s_theme_touch_active)) {
+        if (code != LV_EVENT_VALUE_CHANGED) s_theme_touch_active = false;
+        if (lv_roller_get_selected(s_roller_theme) == nvs_cfg_get()->theme_cfg.theme) {
+            if (s_theme_restart_timer) lv_timer_pause(s_theme_restart_timer);
+        } else if (!s_theme_restart_timer) {
+            s_theme_restart_timer = lv_timer_create(restart_after_theme_change,
+                                                     VEHICLE_SETTLE_MS, NULL);
+        } else {
+            lv_timer_reset(s_theme_restart_timer);
+            lv_timer_resume(s_theme_restart_timer);
+        }
+    }
+    return;
+#else
+    if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) return;
     uint8_t selected = (uint8_t)lv_roller_get_selected(s_roller_theme);
     ui_theme_set_active(selected);   // writes theme_cfg.theme to NVS
     esp_restart();
+#endif
 }
 
 #if CONFIG_OBD_HW_VERSION_M5STOPWATCH
@@ -137,6 +179,30 @@ static void restart_after_vehicle_change(lv_timer_t *timer)
     nvs_cfg_set(&cfg);
     vehicle_profile_set_active(selected);
     esp_restart();  // screens and their vehicle emblems are created once at boot
+}
+
+static void restart_after_theme_change(lv_timer_t *timer)
+{
+    if (s_theme_touch_active || !s_roller_theme) {
+        lv_timer_pause(timer);
+        return;
+    }
+    uint8_t selected = (uint8_t)lv_roller_get_selected(s_roller_theme);
+    lv_timer_pause(timer);
+    if (selected == nvs_cfg_get()->theme_cfg.theme) return;
+    ui_theme_set_active(selected);
+    esp_restart();
+}
+
+static void on_settings_delete(lv_event_t *e)
+{
+    (void)e;
+    if (s_vehicle_restart_timer) lv_timer_pause(s_vehicle_restart_timer);
+    if (s_theme_restart_timer) lv_timer_pause(s_theme_restart_timer);
+    s_vehicle_touch_active = false;
+    s_theme_touch_active = false;
+    s_roller_vehicle = NULL;
+    s_roller_theme = NULL;
 }
 #endif
 
@@ -186,6 +252,9 @@ void ui_ScreenPageSettings_screen_init(void)
     lv_roller_set_selected(s_roller_page, (cfg->default_page < BOOT_PAGE_COUNT) ? cfg->default_page : 0, LV_ANIM_OFF);
     lv_obj_set_width(s_roller_page, 140);
     lv_obj_set_height(s_roller_page, 30);   // explicit: font is applied by style_dark_roller below
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    lv_obj_set_ext_click_area(s_roller_page, 7);  // 44 px high hit area
+#endif
     ui_helpers_style_dark_roller(s_roller_page, &ui_font_FontTypoderSize20);
     lv_obj_align(s_roller_page, LV_ALIGN_CENTER, 0, -84);
     lv_obj_add_event_cb(s_roller_page, on_page_roller_change, LV_EVENT_VALUE_CHANGED, NULL);
@@ -214,6 +283,9 @@ void ui_ScreenPageSettings_screen_init(void)
     lv_roller_set_selected(s_roller_vehicle, (cfg->vehicle_profile_idx < vehicle_count) ? cfg->vehicle_profile_idx : 0, LV_ANIM_OFF);
     lv_obj_set_width(s_roller_vehicle, 210);   // wide enough for long names (e.g. "BMW X1 F48")
     lv_obj_set_height(s_roller_vehicle, 30);   // explicit: font is applied by style_dark_roller below
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    lv_obj_set_ext_click_area(s_roller_vehicle, 7);
+#endif
     ui_helpers_style_dark_roller(s_roller_vehicle, &ui_font_FontTypoderSize20);
     lv_obj_align(s_roller_vehicle, LV_ALIGN_CENTER, 0, -31);
     lv_obj_add_event_cb(s_roller_vehicle, on_vehicle_roller_change,
@@ -244,9 +316,18 @@ void ui_ScreenPageSettings_screen_init(void)
     lv_roller_set_selected(s_roller_theme, (cfg->theme_cfg.theme < theme_count) ? cfg->theme_cfg.theme : 0, LV_ANIM_OFF);
     lv_obj_set_width(s_roller_theme, 160);
     lv_obj_set_height(s_roller_theme, 30);   // explicit: font is applied by style_dark_roller below
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    lv_obj_set_ext_click_area(s_roller_theme, 7);
+#endif
     ui_helpers_style_dark_roller(s_roller_theme, &ui_font_FontTypoderSize20);
     lv_obj_align(s_roller_theme, LV_ALIGN_CENTER, 0, 22);
-    lv_obj_add_event_cb(s_roller_theme, on_theme_roller_change, LV_EVENT_VALUE_CHANGED, NULL);
+    lv_obj_add_event_cb(s_roller_theme, on_theme_roller_change,
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+                        LV_EVENT_ALL,
+#else
+                        LV_EVENT_VALUE_CHANGED,
+#endif
+                        NULL);
 
     // ====== Row 4: Brightness ======
     lv_obj_t *label_bright = lv_label_create(ui_ScreenPageSettings);
@@ -261,6 +342,9 @@ void ui_ScreenPageSettings_screen_init(void)
     lv_slider_set_value(s_slider_bright, cfg->brightness_day, LV_ANIM_OFF);
     lv_obj_set_width(s_slider_bright, 180);
     lv_obj_set_height(s_slider_bright, 10);
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    lv_obj_set_ext_click_area(s_slider_bright, 17); // 44 px high hit area
+#endif
     lv_obj_align(s_slider_bright, LV_ALIGN_CENTER, 0, 70);
     lv_obj_set_style_bg_color(s_slider_bright, ui_theme_color_lv(UI_COLOR_ARC_TRACK), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(s_slider_bright, 255, LV_PART_MAIN);
@@ -269,7 +353,14 @@ void ui_ScreenPageSettings_screen_init(void)
     lv_obj_set_style_bg_color(s_slider_bright, ui_theme_color_lv(UI_COLOR_ARC_INDICATOR), LV_PART_KNOB);
     lv_obj_set_style_pad_all(s_slider_bright, 5, LV_PART_KNOB);
     lv_obj_clear_flag(s_slider_bright, LV_OBJ_FLAG_GESTURE_BUBBLE);      // avoid page swipe while dragging
-    lv_obj_add_event_cb(s_slider_bright, on_bright_slider_change, LV_EVENT_VALUE_CHANGED, NULL);
+    lv_obj_add_event_cb(s_slider_bright, on_bright_slider_change,
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+                        LV_EVENT_ALL,
+#else
+                        LV_EVENT_VALUE_CHANGED,
+#endif
+                        NULL);
+    ui_helpers_enable_option_feedback(s_slider_bright);
 
     s_label_bright_val = lv_label_create(ui_ScreenPageSettings);
     lv_label_set_text_fmt(s_label_bright_val, "%d%%", cfg->brightness_day);
@@ -282,12 +373,22 @@ void ui_ScreenPageSettings_screen_init(void)
     lv_label_set_text(label_rc, "RACECHRONO");
     lv_obj_set_style_text_font(label_rc, &ui_font_FontTypoderSize16, LV_PART_MAIN);
     lv_obj_set_style_text_color(label_rc, ui_theme_color_lv(UI_COLOR_TEXT_SECONDARY), LV_PART_MAIN);
-    lv_obj_align(label_rc, LV_ALIGN_CENTER, -40, 122);   // label + button share one row to save height
+    lv_obj_align(label_rc, LV_ALIGN_CENTER,
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+                 -55,
+#else
+                 -40,
+#endif
+                 122);   // label + button share one row to save height
 
     s_rc_enabled = cfg->rc_enabled;
     s_btn_rc = lv_btn_create(ui_ScreenPageSettings);
     lv_obj_set_style_clip_corner(s_btn_rc, true, 0);
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    lv_obj_set_size(s_btn_rc, 76, 44);
+#else
     lv_obj_set_size(s_btn_rc, 60, 26);
+#endif
     lv_obj_align(s_btn_rc, LV_ALIGN_CENTER, 70, 122);
     lv_obj_set_style_bg_color(s_btn_rc, s_rc_enabled ? lv_color_hex(0x00AA55) : lv_color_hex(0x333333), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(s_btn_rc, 255, LV_PART_MAIN);
@@ -302,7 +403,13 @@ void ui_ScreenPageSettings_screen_init(void)
 
     // ====== Hint ======
     lv_obj_t *hint = lv_label_create(ui_ScreenPageSettings);
-    lv_label_set_text(hint, "Swipe down: multi-gauge\nL/R: back");
+    lv_label_set_text(hint,
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+                      "Up: feedback  Down: multi-gauge\nL/R: back"
+#else
+                      "Swipe down: multi-gauge\nL/R: back"
+#endif
+                      );
     lv_obj_set_style_text_font(hint, &lv_font_montserrat_12, LV_PART_MAIN);
     lv_obj_set_style_text_color(hint, lv_color_hex(0x555555), LV_PART_MAIN);
     lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
@@ -311,4 +418,7 @@ void ui_ScreenPageSettings_screen_init(void)
     // Events - swipe to go back / down to multi-gauge
     lv_obj_move_foreground(ring);   // ring on top
     lv_obj_add_event_cb(ui_ScreenPageSettings, ui_event_settings_background, LV_EVENT_GESTURE, NULL);
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    lv_obj_add_event_cb(ui_ScreenPageSettings, on_settings_delete, LV_EVENT_DELETE, NULL);
+#endif
 }

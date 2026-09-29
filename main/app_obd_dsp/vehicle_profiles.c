@@ -238,6 +238,8 @@ static const vehicle_profile_t s_profiles[] = {
             .tertiary = OIL_TEMP_MODE_NONE,
         },
         .has_boost = true,                 // B48 turbo, boost pressure via standard 010B
+        .forced_protocol = 6,             // MINI F56: ISO 15765-4 CAN 11-bit 500 kbit/s
+        .obd_functional_addr = true,      // standard OBD functional request ID 7DF
     },
     {
         // MINI R55 Clubman (2008-2014, N14/N18 1.6T or N16 1.6 NA)
@@ -401,6 +403,8 @@ static const vehicle_profile_t s_profiles[] = {
             .tertiary = OIL_TEMP_MODE_NONE,
         },
         .has_boost = true,
+        .forced_protocol = 6,             // same F56 OBD CAN bus as JCW
+        .obd_functional_addr = true,
     },
 };
 

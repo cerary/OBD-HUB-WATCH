@@ -44,6 +44,9 @@
 #include "app_obd_dsp/obd_data_cache.h"
 #include "app_obd_dsp/vehicle_profiles.h"
 #include "export_path/ui_ext.h"
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+#include "export_path/ui.h"
+#endif
 #include "app_obd_dsp/app_event.h"
 #include "theme_engine/theme_interface.h"
 
@@ -207,6 +210,99 @@ static void lvgl_port_task(void *arg)
     }
 }
 
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+typedef struct {
+    bool raw_pressed;
+    bool stable_pressed;
+    uint32_t raw_changed_ms;
+} stopwatch_button_state_t;
+
+static stopwatch_button_state_t s_left_button;
+static stopwatch_button_state_t s_right_button;
+static bool s_right_g_click_pending;
+static bool s_right_g_second_pressed;
+static uint32_t s_right_g_click_ms;
+
+static bool stopwatch_button_released(stopwatch_button_state_t *button,
+                                      bool pressed, uint32_t now_ms)
+{
+    if (pressed != button->raw_pressed) {
+        button->raw_pressed = pressed;
+        button->raw_changed_ms = now_ms;
+    }
+    if (pressed != button->stable_pressed && now_ms - button->raw_changed_ms >= 30) {
+        button->stable_pressed = pressed;
+        return !pressed;
+    }
+    return false;
+}
+
+static void stopwatch_button_timer(lv_timer_t *timer)
+{
+    (void)timer;
+    bool left_pressed = false, right_pressed = false;
+    stopwatch_board_buttons_read(&left_pressed, &right_pressed);
+    uint32_t now_ms = lv_tick_get();
+    bool left_released = stopwatch_button_released(&s_left_button, left_pressed, now_ms);
+    bool right_released = stopwatch_button_released(&s_right_button, right_pressed, now_ms);
+
+    if (s_right_g_click_pending && lv_scr_act() != ui_ScreenPageGForce) {
+        s_right_g_click_pending = false;
+        s_right_g_second_pressed = false;
+    }
+
+    if (s_right_g_click_pending && right_pressed &&
+        now_ms - s_right_g_click_ms < 380)
+        s_right_g_second_pressed = true;
+
+    if (left_released) {
+        s_right_g_click_pending = false;
+        s_right_g_second_pressed = false;
+        ui_stopwatch_button_navigate(false);
+    }
+    if (right_released) {
+        if (lv_scr_act() == ui_ScreenPageGForce) {
+            if (s_right_g_click_pending && s_right_g_second_pressed) {
+                s_right_g_click_pending = false;
+                s_right_g_second_pressed = false;
+                ui_gforce_clear_max();
+                stopwatch_board_feedback(STOPWATCH_FEEDBACK_OPTION);
+            } else if (s_right_g_click_pending && now_ms - s_right_g_click_ms >= 380) {
+                s_right_g_click_pending = false;
+                ui_stopwatch_button_navigate(true);
+            } else {
+                s_right_g_click_pending = true;
+                s_right_g_second_pressed = false;
+                s_right_g_click_ms = now_ms;
+            }
+        } else {
+            s_right_g_click_pending = false;
+            s_right_g_second_pressed = false;
+            ui_stopwatch_button_navigate(true);
+        }
+    }
+    // On the G page only, defer a single right click until the double-click
+    // window closes, so a double click never briefly leaves the page.
+    if (s_right_g_click_pending && !right_pressed &&
+        now_ms - s_right_g_click_ms >= 380) {
+        s_right_g_click_pending = false;
+        s_right_g_second_pressed = false;
+        if (lv_scr_act() == ui_ScreenPageGForce)
+            ui_stopwatch_button_navigate(true);
+    }
+}
+
+static void stopwatch_buttons_start(void)
+{
+    bool left_pressed = false, right_pressed = false;
+    stopwatch_board_buttons_read(&left_pressed, &right_pressed);
+    s_left_button.raw_pressed = s_left_button.stable_pressed = left_pressed;
+    s_right_button.raw_pressed = s_right_button.stable_pressed = right_pressed;
+    s_left_button.raw_changed_ms = s_right_button.raw_changed_ms = lv_tick_get();
+    lv_timer_create(stopwatch_button_timer, 15, NULL);
+}
+#endif
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //////////////////// Main function ////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -360,6 +456,9 @@ void app_main(void)
     if (lvgl_lock(-1)) {
         ui_init();  // Now loads theme with logo already displayed
         ui_ext_init();
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+        stopwatch_buttons_start();
+#endif
         lvgl_unlock();
     }
     app_event_init();
