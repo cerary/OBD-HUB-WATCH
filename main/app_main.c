@@ -223,6 +223,12 @@ static bool s_right_g_click_pending;
 static bool s_right_g_second_pressed;
 static uint32_t s_right_g_click_ms;
 
+static void stopwatch_charge_led_timer(lv_timer_t *timer)
+{
+    (void)timer;
+    stopwatch_board_charge_led_update();
+}
+
 static bool stopwatch_button_released(stopwatch_button_state_t *button,
                                       bool pressed, uint32_t now_ms)
 {
@@ -306,6 +312,7 @@ static void stopwatch_buttons_start(void)
     s_right_button.raw_pressed = s_right_button.stable_pressed = right_pressed;
     s_left_button.raw_changed_ms = s_right_button.raw_changed_ms = lv_tick_get();
     lv_timer_create(stopwatch_button_timer, 15, NULL);
+    lv_timer_create(stopwatch_charge_led_timer, 500, NULL);
 }
 #endif
 

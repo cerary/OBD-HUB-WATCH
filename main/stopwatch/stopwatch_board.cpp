@@ -96,6 +96,41 @@ public:
 
 StopWatchDisplay display;
 M5PM1 pmic;
+bool charge_input_ready = false;
+bool charge_led_state_known = false;
+bool charge_led_on = false;
+
+bool configure_charge_input() {
+    // LGS4056 CHRG is active-low on PMIC GPIO2, pulled up by the board.
+    // GPIO3 selects charge current; do not change it for LED control.
+    if (pmic.gpioSetFunc(M5PM1_GPIO_NUM_2, M5PM1_GPIO_FUNC_GPIO) != M5PM1_OK ||
+        pmic.gpioSetMode(M5PM1_GPIO_NUM_2, M5PM1_GPIO_MODE_INPUT) != M5PM1_OK ||
+        pmic.gpioSetPull(M5PM1_GPIO_NUM_2, M5PM1_GPIO_PULL_NONE) != M5PM1_OK)
+        return false;
+    m5pm1_pin_status_t pin = {};
+    return pmic.getPinStatus(M5PM1_GPIO_NUM_2, &pin) == M5PM1_OK &&
+           pin.func == M5PM1_GPIO_FUNC_GPIO && pin.mode == M5PM1_GPIO_MODE_INPUT &&
+           pin.pull == M5PM1_GPIO_PULL_NONE;
+}
+
+bool set_charge_led(bool enabled) {
+    uint8_t power_cfg = 0;
+    if (pmic.getPowerConfig(&power_cfg) != M5PM1_OK) return false;
+    if (((power_cfg & M5PM1_PWR_CFG_LED_CTRL) != 0) != enabled) {
+        // The official masked API preserves charging and all power-rail bits.
+        if (pmic.setLedEnLevel(enabled) != M5PM1_OK ||
+            pmic.getPowerConfig(&power_cfg) != M5PM1_OK ||
+            (((power_cfg & M5PM1_PWR_CFG_LED_CTRL) != 0) != enabled))
+            return false;
+    }
+    if (!charge_led_state_known || charge_led_on != enabled) {
+        charge_led_state_known = true;
+        charge_led_on = enabled;
+        ESP_LOGI(TAG, "[POWER] charge LED %s", enabled ? "ON (charging)" : "OFF");
+    }
+    return true;
+}
+
 bool configure_rear_power_wake() {
     // StopWatch v1.0: rear pin 14 is Int_5V, not VBAT. Q2 makes
     // PMG4_PORT_INT active-low when that input is powered. Its U27 diode
@@ -256,6 +291,10 @@ extern "C" bool stopwatch_board_init(void) {
     if (pmic.begin(i2c_bus) != M5PM1_OK) return false;
     pmic.setI2cSleepTime(0);
     pmic.wdtSet(0);
+    // Native reset/download indications precede app control. Default LED_EN
+    // is high; turn it off until actual charging has been confirmed.
+    if (!set_charge_led(false))
+        ESP_LOGW(TAG, "[POWER] initial charge LED off could not be verified");
     uint8_t wake_source = 0;
     if (pmic.getWakeSource(&wake_source, M5PM1_CLEAN_ALL) == M5PM1_OK)
         ESP_LOGI(TAG, "[POWER] cold boot wake source=0x%02X (USB=02 button=04 rear5V=20)", wake_source);
@@ -265,6 +304,7 @@ extern "C" bool stopwatch_board_init(void) {
         ESP_LOGI(TAG, "[POWER] v1.0 rear 5V detection / falling-edge wake verified");
     else
         ESP_LOGE(TAG, "[POWER] rear 5V setup failed; automatic shutdown blocked");
+    stopwatch_board_charge_led_update();
 
     auto ioe_result = ioe.begin(i2c_bus, 0x4F, M5IOE1_I2C_FREQ_400K);
     if (ioe_result != M5IOE1_OK)
@@ -412,6 +452,34 @@ extern "C" void stopwatch_board_feedback(stopwatch_feedback_t kind) {
     }
     portEXIT_CRITICAL(&feedback_lock);
     if (queue) xTaskNotifyGive(feedback_task_handle);
+}
+
+extern "C" void stopwatch_board_charge_led_update(void) {
+    // Called by a global LVGL timer, including boot and all gauge/settings pages.
+    static int64_t next_config_retry_us = 0;
+    static bool was_failed = false;
+    const int64_t now_us = esp_timer_get_time();
+    if (!charge_input_ready && now_us >= next_config_retry_us) {
+        charge_input_ready = configure_charge_input();
+        next_config_retry_us = now_us + 5000000;
+    }
+    uint16_t usb_mv = 0;
+    uint8_t rear_level = 1, charge_level = 1;
+    const bool status_known = charge_input_ready && rear_power_ready &&
+        pmic.readVin(&usb_mv) == M5PM1_OK &&
+        pmic.gpioGetInput(M5PM1_GPIO_NUM_4, &rear_level) == M5PM1_OK &&
+        pmic.gpioGetInput(M5PM1_GPIO_NUM_2, &charge_level) == M5PM1_OK;
+    // External supply alone is not charging: CHRG releases high at full charge.
+    // Rear 5V bypasses the USB VIN ADC, so both input paths must be considered.
+    const bool charging = status_known && (usb_mv > 4000 || rear_level == 0) &&
+                          charge_level == 0;
+    const bool applied = set_charge_led(charging); // unknown status -> off
+    const bool failed = !status_known || !applied;
+    if (failed && !was_failed)
+        ESP_LOGW(TAG, "[POWER] charge LED status/control unverified; requesting OFF");
+    else if (!failed && was_failed)
+        ESP_LOGI(TAG, "[POWER] charge LED monitoring recovered");
+    was_failed = failed;
 }
 
 extern "C" bool stopwatch_board_power_status(uint8_t *percent, bool *external_power) {
