@@ -1,5 +1,5 @@
 // boot_block_player.c — ported from hokori_vehicle_gauge
-// delta_varint_rgb565_black_v1 format decoding + frame-by-frame LVGL canvas rendering
+// RGB565 delta pixels/runs + frame-by-frame LVGL canvas rendering
 #include "app_obd_dsp/boot_block_player.h"
 
 #include <stdio.h>
@@ -43,8 +43,13 @@ static const char *TAG = "boot_block";
 
 #define BOOT_BLOCK_DEFAULT_DATA_FILE "boot_block.bin"
 #define BOOT_BLOCK_DEFAULT_STREAM_FORMAT "delta_varint_rgb565_black_v1"
-// v2: identical to v1, except the per-frame change count is widened from a 2-byte u16 to a 4-byte u32 (supports full-resolution encoding with >255 cells)
+// v2 widens the per-frame change count from u16 to u32 (>65535 changed cells).
 #define BOOT_BLOCK_STREAM_FORMAT_V2 "delta_varint_rgb565_black_v2"
+// v3 groups consecutive cells of the same RGB565 color. Entry tag is
+// length<<2 | explicit_delta<<1 | black. Contiguous entries need no delta;
+// otherwise it follows the tag, relative to the previous run's last cell
+// (an absolute start for the first run). Nonblack entries end with RGB565 LE.
+#define BOOT_BLOCK_STREAM_FORMAT_V3 "delta_runs_rgb565_black_v3"
 #define BOOT_BLOCK_MAX_DIMENSION     512u
 
 // Paths are set externally (simplified version, does not depend on the full registry)
@@ -139,13 +144,15 @@ static bool manifest_load(boot_block_manifest_t *out) {
         ESP_LOGE(TAG, "Manifest validation failed: missing required fields");
         return false;
     }
-    if (m.canvas_width > BOOT_BLOCK_MAX_DIMENSION || m.canvas_height > BOOT_BLOCK_MAX_DIMENSION) {
+    if (m.canvas_width > BOOT_BLOCK_MAX_DIMENSION || m.canvas_height > BOOT_BLOCK_MAX_DIMENSION ||
+        m.grid_width > BOOT_BLOCK_MAX_DIMENSION || m.grid_height > BOOT_BLOCK_MAX_DIMENSION) {
         ESP_LOGE(TAG, "Manifest validation failed: canvas too large");
         return false;
     }
     if (!m.duration_ms) m.duration_ms = ((uint32_t)m.frame_count * 1000u) / m.fps;
     if (strcmp(m.stream_format, BOOT_BLOCK_DEFAULT_STREAM_FORMAT) != 0 &&
-        strcmp(m.stream_format, BOOT_BLOCK_STREAM_FORMAT_V2) != 0) {
+        strcmp(m.stream_format, BOOT_BLOCK_STREAM_FORMAT_V2) != 0 &&
+        strcmp(m.stream_format, BOOT_BLOCK_STREAM_FORMAT_V3) != 0) {
         ESP_LOGE(TAG, "Manifest validation failed: unsupported format '%s'", m.stream_format);
         return false;
     }
@@ -252,23 +259,40 @@ static bool apply_change(uint32_t idx, uint32_t packed) {
 }
 
 static bool apply_next_frame(void) {
-    // v2 frame change count is a 4-byte u32 (single-frame changes can exceed 65535 in full-resolution encoding); v1 remains a 2-byte u16
-    bool count_u32 = (strcmp(s_state.manifest.stream_format, BOOT_BLOCK_STREAM_FORMAT_V2) == 0);
+    bool runs = strcmp(s_state.manifest.stream_format, BOOT_BLOCK_STREAM_FORMAT_V3) == 0;
+    bool count_u32 = runs || strcmp(s_state.manifest.stream_format, BOOT_BLOCK_STREAM_FORMAT_V2) == 0;
     uint8_t header[4];
     if (!read_bytes(header, count_u32 ? 4 : 2)) return false;
 
     uint32_t change_count = (uint32_t)header[0] | ((uint32_t)header[1] << 8);
     if (count_u32) change_count |= ((uint32_t)header[2] << 16) | ((uint32_t)header[3] << 24);
+    uint32_t cells = (uint32_t)s_state.manifest.grid_width * s_state.manifest.grid_height;
+    if (change_count > cells) return false;
     uint32_t prev_idx = UINT32_MAX;
 
     for (uint32_t i = 0; i < change_count; i++) {
-        uint32_t delta_and_black;
-        if (!read_varint_u32(&delta_and_black)) return false;
-
-        bool is_black = (delta_and_black & 1) != 0;
-        uint32_t delta_idx = delta_and_black >> 1;
-        uint32_t idx = (prev_idx == UINT32_MAX) ? delta_idx : prev_idx + delta_idx;
-        prev_idx = idx;
+        uint32_t tag;
+        if (!read_varint_u32(&tag)) return false;
+        bool is_black = (tag & 1) != 0;
+        uint32_t length = 1;
+        uint32_t idx;
+        if (runs) {
+            length = tag >> 2;
+            if (!length) return false;
+            if (tag & 2) {
+                uint32_t delta_idx;
+                if (!read_varint_u32(&delta_idx) ||
+                    (prev_idx != UINT32_MAX && !delta_idx)) return false;
+                idx = prev_idx == UINT32_MAX ? delta_idx : prev_idx + delta_idx;
+            } else {
+                idx = prev_idx == UINT32_MAX ? 0 : prev_idx + 1;
+            }
+        } else {
+            uint32_t delta_idx = tag >> 1;
+            idx = prev_idx == UINT32_MAX ? delta_idx : prev_idx + delta_idx;
+        }
+        if (idx >= cells || length > cells - idx) return false;
+        prev_idx = idx + length - 1;
 
         uint32_t packed = 0;
         if (!is_black) {
@@ -277,7 +301,15 @@ static bool apply_next_frame(void) {
             uint16_t rgb565 = (uint16_t)color_bytes[0] | ((uint16_t)color_bytes[1] << 8);
             packed = rgb565_to_rgb24(rgb565);
         }
-        if (!apply_change(idx, packed)) return false;
+        if (runs && s_state.manifest.grid_width == s_state.manifest.canvas_width &&
+                    s_state.manifest.grid_height == s_state.manifest.canvas_height) {
+            lv_color_t color = packed == 0 ? lv_color_black()
+                : lv_color_make((packed >> 16) & 0xFF, (packed >> 8) & 0xFF, packed & 0xFF);
+            for (uint32_t j = 0; j < length; j++) s_state.canvas_buf[idx + j] = color;
+        } else {
+            for (uint32_t j = 0; j < length; j++)
+                if (!apply_change(idx + j, packed)) return false;
+        }
     }
     return true;
 }
@@ -321,7 +353,7 @@ bool boot_block_player_create(lv_obj_t *parent, lv_obj_t **out_obj) {
     }
 
     if (out_obj) *out_obj = s_state.canvas_obj;
-    ESP_LOGD(TAG, "player ready: %ux%u grid=%ux%u fps=%u frames=%u dur=%ums",
+    ESP_LOGI(TAG, "player ready: %ux%u grid=%ux%u fps=%u frames=%u dur=%ums",
              manifest.canvas_width, manifest.canvas_height,
              manifest.grid_width, manifest.grid_height,
              manifest.fps, manifest.frame_count, manifest.duration_ms);
@@ -369,9 +401,10 @@ void boot_block_player_update(uint32_t elapsed_ms) {
 
     if (s_state.next_frame_index >= s_state.manifest.frame_count ||
         elapsed_ms >= s_state.manifest.duration_ms) {
-        ESP_LOGD(TAG, "finished: frame=%u/%u elapsed=%ums dur=%ums",
+        ESP_LOGI(TAG, "finished: frame=%u/%u elapsed=%ums dur=%ums stream=%u/%u",
                  s_state.next_frame_index, s_state.manifest.frame_count,
-                 elapsed_ms, s_state.manifest.duration_ms);
+                 elapsed_ms, s_state.manifest.duration_ms,
+                 (unsigned)s_state.stream_offset, (unsigned)s_state.stream_size);
         s_state.finished = true;
         close_stream();
     }
