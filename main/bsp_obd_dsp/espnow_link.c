@@ -15,6 +15,7 @@
 #include "esp_netif.h"
 #include "esp_timer.h"
 #include "app_obd_dsp/obd_data_cache.h"
+#include "app_obd_dsp/project_identity.h"
 #include "bsp_obd_dsp/elm327_ble_client.h"
 #include "bsp_obd_dsp/nvs_storage.h"
 
@@ -28,7 +29,8 @@ extern int  ui_intro_get_step(void);
 #define ESPNOW_MAGIC            0x4F42  // 'OB' packet-header magic
 #define ESPNOW_VER              5       // v5: added afr_x100 (air-fuel ratio)
 #define MASTER_NAME_LEN         12
-static const char MASTER_NAME[] = "SkyGauge";   // name the master broadcasts (shown on slaves); could become configurable later
+static const char MASTER_NAME[] = OBD_MASTER_DEVICE_PREFIX;
+_Static_assert(sizeof(MASTER_NAME) <= MASTER_NAME_LEN, "Project name must fit the existing radio packet");
 #define BROADCAST_INTERVAL_MS   100     // master broadcast period (10Hz, plenty for gauges)
 #define PRESENCE_INTERVAL_MS    500     // slave "presence" report period
 #define MG_MAX_SLAVES           4       // max slaves the master tracks

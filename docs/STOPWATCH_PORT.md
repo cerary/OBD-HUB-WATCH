@@ -1,15 +1,15 @@
 # M5Stack StopWatch port
 
-> 此文记录 2026-09-29 的移植状态。2026-09-30 的当前固件、验证结果和后续任务见 [STOPWATCH_HANDOFF.md](../STOPWATCH_HANDOFF.md)。
+> 此文仅记录 2026-09-29 的历史移植与素材来源。当前固件、验证结果和后续任务见 [STOPWATCH_HANDOFF.md](../STOPWATCH_HANDOFF.md)。
 
 This branch ports `steveEcode/obd_brz_gauge` to the M5Stack StopWatch C152
 (ESP32-S3, 16 MB flash, 8 MB PSRAM). The hardware reference is the M5Stack
 StopWatch UserDemo. The desktop project root is
-`C:\Users\cerar\Desktop\obd-stopwatch`.
+`<workspace>`.
 
 ## Device status (2026-09-29)
 
-- COM6 is the user's ESP32-S3 StopWatch, MAC `28:84:85:44:66:00`.
+- The historical test device was a StopWatch V1.0; serial identity is kept in local records.
 - ESP-IDF 5.5.4 builds the application with `sdkconfig.stopwatch`.
 - CO5300 display and CST820 touch work. The user has verified page navigation,
   one tap per page change, the shared 452-pixel white bezel ring, and BLE SCAN
@@ -18,7 +18,7 @@ StopWatch UserDemo. The desktop project root is
   and enlarges RPM and speed arcs. MINI emblems now follow the selected vehicle:
   `JCW F56 8AT` displays the F56-era JCW emblem and `GP3 F56 8AT` displays the
   original GP3 grille badge silhouette. The independent MINI LOGO setting was
-  removed. Other vehicle profiles show the SKY GAUGE project name.
+  removed. Other vehicle profiles show the OBD HUB WATCH project name.
 - The legacy SquareLine 306x38 black-ear header mask caused two black
   squares beside the gray gauge arc and on the red RPM WARN test screen.
   The StopWatch build uses a transparent 1x1 replacement; the original
@@ -54,10 +54,10 @@ StopWatch UserDemo. The desktop project root is
 ## Build from the desktop project
 
 ```powershell
-Set-Location 'C:\Users\cerar\Desktop\obd-stopwatch\work\obd_brz_gauge'
+Set-Location '<workspace>\OBD-HUB-WATCH'
 .\tools\prepare_stopwatch_deps.ps1
-& 'C:\Users\cerar\esp\esp-idf-v5.5.4\export.ps1'
-$env:STOPWATCH_DEPS_DIR = 'C:\Users\cerar\Desktop\obd-stopwatch\work'
+& '<ESP-IDF-5.5.4>\export.ps1'
+$env:STOPWATCH_DEPS_DIR = '<dependency-parent>'
 idf.py -B ..\obd-build-stopwatch-clean -D 'SDKCONFIG=sdkconfig.stopwatch' build
 ```
 

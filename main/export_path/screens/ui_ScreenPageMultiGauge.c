@@ -1,4 +1,4 @@
-// Multi-Gauge (triple-gauge) Settings Page  (entered by swiping down from the settings page)
+// Multi-Gauge Settings Page (StopWatch: SETTINGS > MORE; original boards: swipe down)
 //  - MODE: MASTER (connects to ELM327 + broadcasts) / SLAVE (receives the master's data) / STANDALONE (standalone, WiFi not started) → NVS device_role
 //  - POSITION: this unit's position 1/2/3 (RACE/AS/ONE) in the boot animation     → NVS device_position
 //  - INTRO: boot animation: OFF / RACE (LVGL intro) / VIDEO (app-flashed boot_block)  → NVS intro_enable
@@ -185,6 +185,9 @@ void ui_ScreenPageMultiGauge_screen_init(void)
     // Hide irrelevant rows based on role
     mg_update_visibility(cfg->device_role);
 
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    ui_settings_add_back_button(ui_ScreenPageMultiGauge,166);
+#endif
     lv_obj_move_foreground(ring);
     lv_obj_add_event_cb(ui_ScreenPageMultiGauge, ui_event_multi_gauge_background, LV_EVENT_GESTURE, NULL);
 }

@@ -1,0 +1,244 @@
+> Historical pre-publication guide. Current StopWatch standard and instructions are in [the root README](../../README.md).
+
+# OBD HUB WATCH
+
+A round ESP-IDF car gauge customized for M5Stack StopWatch V1.0. It connects
+to an ELM327-compatible BLE OBD adapter, reads vehicle data, and renders a
+touch UI with LVGL.
+
+基于 ESP-IDF 的圆形车载仪表，当前版本适配 M5Stack StopWatch V1.0。
+通过 BLE 连接兼容 ELM327 的 OBD 适配器读取车辆数据，用 LVGL 渲染触控界面。
+
+**[上游项目效果演示 / Upstream demo video](https://www.douyin.com/video/7614174567678984187)**
+
+> Adapted from [OBD BRZ Gauge](https://github.com/steveEcode/obd_brz_gauge), based on [zhaizhaitao/open_obd_dsp](https://github.com/zhaizhaitao/open_obd_dsp)
+> by zhaizhaitao ([Bilibili demo](https://www.bilibili.com/video/BV18oHXz6EiQ/)).
+> This is a derivative with additional vehicle profiles, multi-gauge support and
+> a theming system.
+>
+> 本项目基于 [zhaizhaitao/open_obd_dsp](https://github.com/zhaizhaitao/open_obd_dsp)
+> 二次开发，原作者 zhaizhaitao（[B 站演示](https://www.bilibili.com/video/BV18oHXz6EiQ/)）。
+> 本仓库新增了多车型适配、三连表联动和主题系统。
+
+---
+
+## ⚠️ Branch Notice / 分支说明
+
+M5Stack StopWatch 移植在独立的 `port/m5stopwatch` 分支；从该分支继续开发请先读 [StopWatch 交接文档](https://github.com/steveEcode/obd_brz_gauge/blob/main/STOPWATCH_HANDOFF.md)。
+
+This repository has two main branches with **incompatible partition layouts**:
+
+- **`main`** — Stable branch, themes compiled into firmware
+- **`theme-upgrade`** — Experimental branch with runtime-loadable themes (4MB theme partition)
+
+⚠️ You **cannot** OTA upgrade between branches. See [docs/BRANCH_COMPARISON.md](https://github.com/steveEcode/obd_brz_gauge/blob/main/docs/BRANCH_COMPARISON.md) for details.
+
+本仓库有两个主要分支，**分区布局不兼容**：
+
+- **`main`** — 稳定分支，主题编译进固件
+- **`theme-upgrade`** — 实验分支，支持运行时加载主题（4MB 主题分区）
+
+⚠️ 两个分支之间**无法通过 OTA 互相升级**。详见 [docs/BRANCH_COMPARISON.md](https://github.com/steveEcode/obd_brz_gauge/blob/main/docs/BRANCH_COMPARISON.md)。
+
+---
+
+## 📖 Documentation / 文档索引
+
+**Start here / 从这里开始**
+
+| Document | What it covers / 内容 |
+|----------|----------------------|
+| [STOPWATCH_HANDOFF.md](https://github.com/steveEcode/obd_brz_gauge/blob/main/STOPWATCH_HANDOFF.md) | StopWatch 当前固件、实机验证和后续任务 / current StopWatch handoff |
+| [docs/README.zh-CN.md](https://github.com/steveEcode/obd_brz_gauge/blob/main/docs/README.zh-CN.md) | **完整中文说明** — 功能、依赖、编译烧录、适配要点 |
+| [docs/README.en.md](https://github.com/steveEcode/obd_brz_gauge/blob/main/docs/README.en.md) | **Full English guide** — features, requirements, build and flash |
+| [docs/BRANCH_COMPARISON.md](https://github.com/steveEcode/obd_brz_gauge/blob/main/docs/BRANCH_COMPARISON.md) | **Branch differences** — main vs theme-upgrade partition layouts / 分支差异对比 |
+| [docs/APP_INTEGRATION.md](https://github.com/steveEcode/obd_brz_gauge/blob/main/docs/APP_INTEGRATION.md) | App/device manifest, firmware validation, single-slot boot animation / App 对接、硬件校验、单槽开机动画 |
+| [firmware/README.md](https://github.com/steveEcode/obd_brz_gauge/blob/main/firmware/README.md) | Pre-built binaries and flash addresses / 预编译固件与烧录地址 |
+| [CHANGELOG.md](https://github.com/steveEcode/obd_brz_gauge/blob/main/CHANGELOG.md) | Changelog / 更新日志（中英双语） |
+
+**Vehicles & OBD / 车辆适配与 OBD**
+
+| Document | What it covers / 内容 |
+|----------|----------------------|
+| [docs/VEHICLE_CONFIG.md](https://github.com/steveEcode/obd_brz_gauge/blob/main/docs/VEHICLE_CONFIG.md) | **Adding a vehicle profile** / 新增车型看这篇（中英对照） |
+| [docs/OBD_TROUBLESHOOTING.md](https://github.com/steveEcode/obd_brz_gauge/blob/main/docs/OBD_TROUBLESHOOTING.md) | No data / won't connect — diagnosis / 连不上或没数据时的排查 |
+| [docs/AUTO_PROTOCOL_DETECTION.md](https://github.com/steveEcode/obd_brz_gauge/blob/main/docs/AUTO_PROTOCOL_DETECTION.md) | Protocol auto-detection: usage, FAQ, debugging / 自动协议检测：用法、常见问题、调试 |
+| [docs/BRZ_ZD8_PROTOCOL_GUIDE.md](https://github.com/steveEcode/obd_brz_gauge/blob/main/docs/BRZ_ZD8_PROTOCOL_GUIDE.md) | BRZ ZD8 (Gen2) protocol diagnosis / ZD8 协议诊断 |
+
+**UI themes / 界面主题**
+
+| Document | What it covers / 内容 |
+|----------|----------------------|
+| [themes/README.md](https://github.com/steveEcode/obd_brz_gauge/blob/main/themes/README.md) | **Build a theme** — no C code needed / 做一套主题（中英双语） |
+| [docs/THEMING.md](https://github.com/steveEcode/obd_brz_gauge/blob/main/docs/THEMING.md) | Theme framework internals / 主题框架内部实现 |
+
+Repository layout is in [this README](#repository-layout--目录结构) below.
+目录结构见本文下方的[目录结构](#repository-layout--目录结构)一节。
+
+---
+
+## Status / 当前状态
+
+| | |
+|---|---|
+| Hardware / 硬件 | Waveshare ESP32-S3-Touch-LCD-1.85 (360×360 round, 16 MB flash, 8 MB PSRAM) |
+| Stack / 软件栈 | ESP-IDF 5.5.3, LVGL 8 |
+| Link / 通信链路 | BLE + ELM327 — standard OBD PID; only ZN/C6 CAN keeps ATMA monitoring |
+| Multi-gauge / 三连表 | One master + multiple slaves over ESP-NOW / 一主多从，ESP-NOW 联动 |
+| Verified on / 已验证 | Subaru BRZ ZN/C6 (fully) — ZN/C6 CAN is the only CAN-backed profile; other profiles are OBD-only / 其余车型已配置，部分仍需上车验证 |
+
+**Vehicle profiles / 内置车型** (12) — full list in
+[vehicle_profiles.c](https://github.com/steveEcode/obd_brz_gauge/blob/main/main/app_obd_dsp/vehicle_profiles.c), selectable in Settings:
+
+`OBD2 Generic` · `ZN/C6 CAN` · `ZN/C6 PID` · `ZD8 OBD` · `ZD8` · `MX-5 ND` ·
+`BMW F/G` · `BMW G OBD` · `JCW F56` · `POS 997.2` · `POS 997.1` · `GIULIA 2.0T`
+
+## Highlights / 主要特性
+
+- **CAN broadcast monitoring** — only `ZN/C6 CAN` bypasses PID polling for
+  high-rate channels; the rest stay on OBD-only polling. / **CAN 广播帧监听** —— 仅 `ZN/C6 CAN` 使用高速监听，其余车型保持 OBD 轮询。
+- **Single-thread ELM327 loop** — no mixed OBD/CAN parallel path; only `ZN/C6 CAN`
+  uses ATMA, so the adapter does not get contended by dual polling. /
+  **ELM327 单线程轮询** —— 不再混跑 OBD/CAN；只有 `ZN/C6 CAN` 走 ATMA，避免适配器抢占和数据延迟。
+- **Brake-temp / oil-pressure alarm throttle** — these two alarms are rate-limited
+  to once every 30 seconds. / **刹车温度 / 油压报警节流** —— 两项报警限制为 30 秒一次，减少刷屏。
+- **Multi-gauge over ESP-NOW** — one board reads OBD and broadcasts; the others
+  display with zero extra OBD load, paired over real BLE. /
+  **三连表** —— 主表读 OBD 广播，从表零额外负载显示，走真蓝牙配对。
+- **Data-driven themes** — a theme is a folder with a manifest plus optional
+  artwork; no C code. / **配置驱动主题** —— 一个文件夹 + 一份清单，不用写 C。
+- **BLE device manifest** — a read-only GATT service exposes hardware/build info so the App can reject mismatched firmware before flashing. / **BLE 设备清单** —— 只读 GATT 服务暴露硬件/构建信息，App 刷写前先做硬件匹配校验。
+- **RPM warning, incl. linked mode** — three gauges light up in sequence as revs
+  climb. / **转速报警（含联动模式）** —— 三块表随转速依次亮起。
+- Manufacturer oil-temp paths beyond PID 01 5C (Mode 21/22, Mazda, MINI/BMW),
+  per-vehicle protocol lock, gear from CAN when available.
+- Self-healing BLE: re-initializes on reconnect and recovers when data stalls —
+  no manual reconnect after ignition. / 数据中断自愈，上车通电无需手动重连。
+
+Full feature lists: [中文](https://github.com/steveEcode/obd_brz_gauge/blob/main/docs/README.zh-CN.md#功能概览) ·
+[English](https://github.com/steveEcode/obd_brz_gauge/blob/main/docs/README.en.md#features)
+
+## Quick Start / 快速开始
+
+### Build from source / 从源码编译
+
+```bash
+git clone https://github.com/steveEcode/obd_brz_gauge.git
+cd obd_brz_gauge
+git checkout theme-upgrade
+idf.py set-target esp32s3
+idf.py build
+idf.py -p PORT flash monitor
+```
+
+### Flash pre-built firmware / 烧录预编译固件
+
+Complete first-time flash (erases entire chip):
+
+```bash
+esptool.py --chip esp32s3 -p PORT -b 460800 --before default_reset --after hard_reset \
+  write_flash --flash_mode dio --flash_freq 80m --flash_size 16MB \
+  0x0 firmware/release/bootloader/bootloader.bin \
+  0x8000 firmware/release/partition_table/partition-table.bin \
+  0xf000 firmware/release/ota_data_initial.bin \
+  0x20000 firmware/release/obd_brz_gauge.bin \
+  0xA20000 firmware/release/bootmedia.bin
+```
+
+完整首次烧录（擦除整个芯片）：
+
+```bash
+esptool.py --chip esp32s3 -p PORT -b 460800 --before default_reset --after hard_reset \
+  write_flash --flash_mode dio --flash_freq 80m --flash_size 16MB \
+  0x0 firmware/release/bootloader/bootloader.bin \
+  0x8000 firmware/release/partition_table/partition-table.bin \
+  0xf000 firmware/release/ota_data_initial.bin \
+  0x20000 firmware/release/obd_brz_gauge.bin \
+  0xA20000 firmware/release/bootmedia.bin
+```
+
+**Notes / 说明:**
+- Replace `PORT` with your serial port (e.g., `COM3` on Windows, `/dev/ttyUSB0` on Linux, `/dev/cu.usbserial-*` on macOS)
+- Requires [esptool.py](https://github.com/espressif/esptool) installed: `pip install esptool`
+- First flash erases all data including NVS settings
+- For subsequent OTA updates, use the companion mobile app
+
+- 将 `PORT` 替换为你的串口（Windows: `COM3`，Linux: `/dev/ttyUSB0`，macOS: `/dev/cu.usbserial-*`）
+- 需要安装 [esptool.py](https://github.com/espressif/esptool)：`pip install esptool`
+- 首次烧录会擦除所有数据（包括 NVS 设置）
+- 后续升级请使用配套手机 App 进行 OTA 更新
+
+## Repository Layout / 目录结构
+
+| Path | Contents |
+|------|----------|
+| [main/app_main.c](https://github.com/steveEcode/obd_brz_gauge/blob/main/main/app_main.c) | Entry point: hardware, LVGL, BLE and task startup |
+| [main/app_obd_dsp](https://github.com/steveEcode/obd_brz_gauge/blob/main/main/app_obd_dsp) | OBD data cache, vehicle profiles, CAN decoders, boot media |
+| [main/bsp_obd_dsp](https://github.com/steveEcode/obd_brz_gauge/blob/main/main/bsp_obd_dsp) | Board support: BLE, NVS, LCD, touch, I2C, IO expander, ESP-NOW |
+| [main/export_path](https://github.com/steveEcode/obd_brz_gauge/blob/main/main/export_path) | LVGL UI (SquareLine export) + theme framework |
+| [themes](https://github.com/steveEcode/obd_brz_gauge/blob/main/themes) | Theme manifests and artwork / 主题清单与素材 |
+| [bootmedia](https://github.com/steveEcode/obd_brz_gauge/blob/main/bootmedia) | Boot animation blocks (SPIFFS partition source) |
+| [tools](https://github.com/steveEcode/obd_brz_gauge/blob/main/tools) | Helper scripts: theme codegen, image conversion, boot blocks |
+| [firmware/release](https://github.com/steveEcode/obd_brz_gauge/blob/main/firmware/release) | Pre-compiled binaries |
+| [model](https://github.com/steveEcode/obd_brz_gauge/blob/main/model) | 3D printable housings, gauge pods and brackets |
+| [docs](https://github.com/steveEcode/obd_brz_gauge/blob/main/docs) | Documentation (see index above) |
+
+## 3D Models / 开源模型
+
+| File | Description |
+|------|-------------|
+| `model/esp32_1.85_weixue/housing.stl` | Board housing / 开发板外壳 |
+| `model/Subaru/brz_zc_n6/triple_gauge_pod.stp` | BRZ ZN/C6 triple gauge pod / 三连表底座 |
+| `model/Subaru/brz_zc_n6/passenger_dashboard_scan.stl` | BRZ ZN/C6 passenger dash scan (fitting reference) / 副驾仪表台扫描件 |
+| `model/mazda/mx5_nd/air_vent_bracket.stl` | MX-5 ND air vent bracket / 出风口支架 |
+
+## Porting Notes / 适配提醒
+
+This repository contains board-specific adaptation and UI resources. Porting to
+another ESP32-S3 board means revisiting pin mapping and display settings
+([main/bsp_obd_dsp](https://github.com/steveEcode/obd_brz_gauge/blob/main/main/bsp_obd_dsp)); porting to another car means
+re-verifying BLE services, PIDs and response parsing
+([docs/VEHICLE_CONFIG.md](https://github.com/steveEcode/obd_brz_gauge/blob/main/docs/VEHICLE_CONFIG.md)).
+
+仓库内是针对当前开发板的适配代码和 UI 资源。换开发板需要重新检查引脚定义和屏幕参数；
+换车型或适配器需要重新验证 BLE 服务、PID 和返回数据解析。
+
+## Acknowledgments / 致谢
+
+- [Hokori23](https://github.com/Hokori23) — performance optimization suggestions
+  and contributions (NVS flush lock hold-time, page-aware refresh cadence, OBD
+  polling throughput). / 性能优化建议与贡献。
+- [timurrrr/ft86](https://github.com/timurrrr/ft86) — comprehensive FT86 CAN bus
+  documentation (Gen1/Gen2 CAN ID mappings and byte-level decoding formulas),
+  which made the CAN broadcast monitoring possible. /
+  提供了完整的 FT86 CAN 总线文档，使 CAN 广播帧监听得以实现。
+
+## License / 开源协议
+
+This project is licensed under the **GNU General Public License v3.0 (GPLv3)**.
+
+本项目采用 **GNU 通用公共许可证 v3.0 (GPLv3)** 开源协议。
+
+- You are free to use, modify, and distribute this software.
+- If you distribute modified versions, you must also release the source code under GPLv3.
+- See [LICENSE](https://github.com/steveEcode/obd_brz_gauge/blob/main/LICENSE) for the full license text.
+
+**简单来说**：
+- ✅ 可以自由使用、修改和分发本软件
+- ⚠️ 如果分发修改版本，必须同样以GPLv3协议开源代码
+- 🔒 增强了防专利条款和Tivoization保护
+- 📄 完整协议文本见 [LICENSE](https://github.com/steveEcode/obd_brz_gauge/blob/main/LICENSE) 文件
+
+```
+Copyright (C) 2024-2026  steveEcode and contributors
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+```

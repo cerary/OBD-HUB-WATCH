@@ -1,0 +1,33 @@
+name: StopWatch firmware build
+on:
+  push:
+    paths: &build_paths
+      - 'main/**'
+      - 'components/**'
+      - 'themes/**'
+      - 'tools/**'
+      - 'sdkconfig*'
+      - 'CMakeLists.txt'
+      - 'dependencies.lock'
+      - 'partitions.csv'
+      - '.github/workflows/firmware-build.yml'
+  pull_request:
+    paths: *build_paths
+permissions:
+  contents: read
+jobs:
+  stopwatch-v1:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    container: espressif/idf:v5.5.4
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare pinned hardware dependencies
+        shell: bash
+        run: python3 tools/prepare_stopwatch_deps.py --directory .cache/stopwatch-deps
+      - name: Build StopWatch V1.0
+        shell: bash
+        run: |
+          . /opt/esp/idf/export.sh
+          export STOPWATCH_DEPS_DIR="$GITHUB_WORKSPACE/.cache/stopwatch-deps"
+          idf.py -B build-stopwatch -DSDKCONFIG=sdkconfig.stopwatch build

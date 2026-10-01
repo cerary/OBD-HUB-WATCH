@@ -17,6 +17,7 @@
 #include "ui.h"
 #include "bsp_obd_dsp/nvs_storage.h"
 #include "bsp_obd_dsp/espnow_link.h"
+#include "bsp_obd_dsp/elm327_ble_client.h"
 #include "bsp_obd_dsp/lcd_driver/ST77916.h"
 #include "app_obd_dsp/obd_data_cache.h"
 #include "app_obd_dsp/vehicle_profiles.h"
@@ -482,7 +483,7 @@ void ui_ext_sweep_trigger(bool ble_now, bool is_slave)
     if (is_slave) return;
     if (ble_now && !s_prev_ble_connected) {
         if (s_boot_done) {
-            s_sweep_step = 1;       // boot animations (Logo/SKY GAUGE/RACE AS ONE) all finished, sweep immediately
+            s_sweep_step = 1;       // boot animations (Logo/OBD HUB WATCH/RACE AS ONE) all finished, sweep immediately
         } else {
             s_sweep_pending = true; // boot animation still playing; defer and fire when the default page loads
         }
@@ -766,6 +767,32 @@ static bool s_rpm_flash_red = false;  // flash state (red/black toggle, drives t
 static bool s_rpm_flashing = false;   // whether strobing right now (stable flag, drives the timer's fast flash; does not toggle with red/black)
 static bool s_rpm_link_ramp = false;  // multi-gauge linked flash: this unit is inside its ramp segment
 static bool s_rpm_link_bg = false;    // multi-gauge linked flash: background is taken by the linked red (must restore theme bg when leaving)
+static lv_obj_t *s_rpm_bg_owner;
+
+static void rpm_background_deleted(lv_event_t *e)
+{
+    if (lv_event_get_target(e) != s_rpm_bg_owner) return;
+    s_rpm_bg_owner = NULL;
+    s_rpm_flash_red = s_rpm_flashing = s_rpm_link_ramp = s_rpm_link_bg = false;
+}
+
+static void rpm_background_release(void)
+{
+    if (s_rpm_bg_owner && lv_obj_is_valid(s_rpm_bg_owner)) {
+        ui_helpers_style_screen_bg(s_rpm_bg_owner);
+        lv_obj_set_style_bg_opa(s_rpm_bg_owner, LV_OPA_COVER, LV_PART_MAIN);
+        lv_obj_remove_event_cb(s_rpm_bg_owner, rpm_background_deleted);
+    }
+    s_rpm_bg_owner = NULL;
+}
+
+static void rpm_background_take(lv_obj_t *screen)
+{
+    if (s_rpm_bg_owner == screen) return;
+    rpm_background_release();
+    s_rpm_bg_owner = screen;
+    lv_obj_add_event_cb(screen, rpm_background_deleted, LV_EVENT_DELETE, NULL);
+}
 
 bool ui_ext_rpm_is_flashing(void) { return s_rpm_flashing; }
 bool ui_ext_rpm_link_ramp_active(void) { return s_rpm_link_ramp; }
@@ -782,6 +809,16 @@ bool ui_ext_rpm_warn_possible(void)
 void ui_ext_rpm_flash_tick(uint16_t usRpm, bool in_sweep)
 {
     const nvs_user_cfg_t *user_cfg = nvs_cfg_get();
+    lv_obj_t *active_screen = lv_scr_act();
+    if (s_rpm_bg_owner && s_rpm_bg_owner != active_screen) rpm_background_release();
+    obd_data_snapshot_t sample;
+    obd_data_freshness_t freshness;
+    obd_data_get_fresh_snapshot(&sample, &freshness);
+    bool connected = user_cfg->device_role == ESPNOW_ROLE_SLAVE ?
+                     espnow_link_slave_has_data() :
+                     elm327_ble_is_connected() && !elm327_ble_cx_is_waiting();
+    bool data_valid = ui_ext_showroom_is_active() || espnow_link_linktest_active() ||
+                      (connected && obd_data_sample_is_fresh(&freshness, OBD_SAMPLE_RPM));
     uint16_t warn_thresh = user_cfg->rpm_warn_threshold; // already clamped to [1000,...]/default 6000 in nvs_storage_init()
     // Linked flash and FLASH ANIM are mutually exclusive (the settings page ensures at most one is on); with linked on, the at-threshold strobe does not depend on anim_en.
     // While a link test is running (linktest_active), this unit renders even if LINKED FLASH is off locally, so the all-gauge sync test works.
@@ -791,12 +828,14 @@ void ui_ext_rpm_flash_tick(uint16_t usRpm, bool in_sweep)
                      (user_cfg->device_role != ESPNOW_ROLE_STANDALONE);
 
     // The linked-test RPM ramp is written by the master into the RPM override layer and broadcast via ESP-NOW; usRpm is the synced value, identical on all three gauges
-    bool over = (!in_sweep && (user_cfg->rpm_warn_anim_en || linked_on) && usRpm >= warn_thresh);
+    bool over = (!in_sweep && data_valid && usRpm != UINT16_MAX &&
+                 (user_cfg->rpm_warn_anim_en || linked_on) && usRpm >= warn_thresh);
     // Test mode: force trigger
     if (s_rpm_flash_test_ticks > 0) { over = true; s_rpm_flash_test_ticks--; }
 
     // Stable flag: stays true while strobing, driving the timer to flash at RPM_FLASH_PERIOD_MS (independent of the red/black toggle)
     s_rpm_flashing = over;
+    if (over) rpm_background_take(active_screen);
 
     // Background image flash: img1→black→img2→black→img3→black loop; UI widgets keep showing above the image
 #if USE_CUSTOM_RPM_FLASH == 1
@@ -818,11 +857,6 @@ void ui_ext_rpm_flash_tick(uint16_t usRpm, bool in_sweep)
         s_rpm_flash_red = true;
     } else {
         if (s_flash_step >= 0) {
-            lv_obj_t *scr = lv_scr_act();
-            // Restore the theme background (and its dial-face artwork, if any).
-            // Hardcoding black here would blank a themed dial face for good.
-            ui_helpers_style_screen_bg(scr);
-            lv_obj_set_style_bg_opa(scr, 255, LV_PART_MAIN);
             s_flash_step = -1;
         }
         s_rpm_flash_red = false;
@@ -837,19 +871,14 @@ void ui_ext_rpm_flash_tick(uint16_t usRpm, bool in_sweep)
         lv_obj_set_style_bg_color(scr, s_rpm_flash_red ? lv_color_hex(UI_SEM_FLASH) : lv_color_hex(0x000000), LV_PART_MAIN);
         lv_obj_set_style_bg_opa(scr, 255, LV_PART_MAIN);
     } else {
-        if (s_rpm_flash_red) {
-            lv_obj_t *scr = lv_scr_act();
-            ui_helpers_style_screen_bg(scr);   // restore theme bg + dial face
-            lv_obj_set_style_bg_opa(scr, 255, LV_PART_MAIN);
-            s_rpm_flash_red = false;
-        }
+        s_rpm_flash_red = false;
     }
 #endif
 
     // ---- Multi-gauge linked strobe (triple-gauge mode) ----
     {
         bool linked_drawn = false;
-        if (linked_on && !over && !in_sweep && warn_thresh > 1000 && usRpm < warn_thresh) {
+        if (linked_on && data_valid && !over && !in_sweep && warn_thresh > 1000 && usRpm < warn_thresh) {
             uint32_t base = (uint32_t)warn_thresh - 1000;   // start RPM = threshold minus 1000 rpm
             uint8_t pos = nvs_device_position_get();        // this unit's position 1/2/3
             if (pos >= 1 && pos <= 3) {
@@ -857,6 +886,7 @@ void ui_ext_rpm_flash_tick(uint16_t usRpm, bool in_sweep)
                 uint32_t seg_end   = base + 1000u * pos / 3;
                 lv_obj_t *scr = lv_scr_act();
                 if (usRpm >= seg_end) {
+                    rpm_background_take(scr);
                     // this unit's segment completed: solid red
                     lv_obj_set_style_bg_img_src(scr, NULL, LV_PART_MAIN);
                     lv_obj_set_style_bg_color(scr, lv_color_hex(0xFF0000), LV_PART_MAIN);
@@ -864,6 +894,7 @@ void ui_ext_rpm_flash_tick(uint16_t usRpm, bool in_sweep)
                     s_rpm_link_ramp = false;
                     linked_drawn = true;
                 } else if (usRpm > seg_start && seg_end > seg_start) {
+                    rpm_background_take(scr);
                     // inside this unit's segment: full-screen black→red ramp, alpha rising linearly with RPM
                     uint8_t alpha = (uint8_t)(((uint32_t)usRpm - seg_start) * 255 / (seg_end - seg_start));
                     lv_obj_set_style_bg_img_src(scr, NULL, LV_PART_MAIN);
@@ -880,12 +911,10 @@ void ui_ext_rpm_flash_tick(uint16_t usRpm, bool in_sweep)
         } else if (!over) {
             // during over (strobe) the flash logic owns the background, don't touch it here; otherwise, leaving the linked red must restore black
             s_rpm_link_ramp = false;
-            if (s_rpm_link_bg) {
-                lv_obj_t *scr = lv_scr_act();
-                ui_helpers_style_screen_bg(scr);   // restore theme bg + dial face
-                lv_obj_set_style_bg_opa(scr, 255, LV_PART_MAIN);
-                s_rpm_link_bg = false;
-            }
+            s_rpm_link_bg = false;
+            // Restore the actual owner, even after the black phase or a page
+            // change. The theme face must not remain replaced by an alarm.
+            rpm_background_release();
         }
     }
 }

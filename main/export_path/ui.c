@@ -31,6 +31,8 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
+#include "ui_status_ring.h"
+#include "ui_peak_marker.h"
 
 
 static const char *TAG = "ui";
@@ -144,7 +146,13 @@ lv_obj_t * ui_ScreenPageExpression;
 // SCREEN: ui_ScreenPageSettings
 void ui_ScreenPageSettings_screen_init(void);
 lv_obj_t * ui_ScreenPageSettings;
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+lv_obj_t *ui_ScreenPageBasicSettings;
+lv_obj_t *ui_ScreenPageOBDConnect;
+lv_obj_t *ui_ScreenPageMoreSettings;
+#endif
 lv_obj_t * ui_ScreenPageFeedback;
+lv_obj_t *ui_ScreenPageCxSettings;
 // CUSTOM VARIABLES
 
 // SCREEN: ui_ScreenPageOilWarn
@@ -446,7 +454,13 @@ static uint32_t ui_refresh_period_ms_for_screen(lv_obj_t *scr,
         scr == ui_ScreenPageIntro) {
         return 33;
     }
-    if (scr == ui_ScreenPageSettings || scr == ui_ScreenPageMultiGauge ||
+    if (
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+        scr == ui_ScreenPageBasicSettings || scr == ui_ScreenPageOBDConnect ||
+        scr == ui_ScreenPageMoreSettings || scr == ui_ScreenPageFeedback || scr == ui_ScreenPageCxSettings ||
+        scr == ui_ScreenPageRingSettings ||
+#endif
+        scr == ui_ScreenPageSettings || scr == ui_ScreenPageMultiGauge ||
         scr == ui_ScreenPageBLEScan || scr == ui_ScreenPageOTAMode || scr == ui_ScreenPageODBProtocal ||
         scr == ui_ScreenPageTempCustom || scr == ui_ScreenPageInfoCustom ||
         scr == ui_ScreenPageNeedleConfig || scr == ui_ScreenPageChartConfig ||
@@ -477,8 +491,8 @@ static void ui_build_theme_snapshot(obd_snapshot_t *out,
                                      enGear eGear, bool gear_unknown)
 {
     memset(out, 0, sizeof(*out));
-    out->rpm = usRpm;
-    out->speed = (ucSpeed > 255) ? 255 : (uint8_t)ucSpeed;
+    out->rpm = usRpm == UINT16_MAX ? 0 : usRpm;
+    out->speed = ucSpeed == UINT16_MAX ? 0 : (ucSpeed > 255 ? 255 : (uint8_t)ucSpeed);
     out->boost = (boost_x10 <= -32768) ? 0 : (int16_t)(boost_x10 * 10);
     out->coolant_temp = (clt < 0) ? 0 : (clt > 255 ? 255 : (uint8_t)clt);
     if (oilp_x10 < 0) {
@@ -501,6 +515,12 @@ static void ui_build_theme_snapshot(obd_snapshot_t *out,
 
 void my_timerMain(lv_timer_t * timer)
 {
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    ui_cx_power_update();
+    ui_status_ring_tick();
+    ui_peak_marker_tick();
+    ui_settings_refresh();
+#endif
     // ---- Process the event queue (ESP-NOW / BLE cross-task events) ----
     {
         app_event_t evt;
@@ -570,8 +590,16 @@ void my_timerMain(lv_timer_t * timer)
     if (!IN_SWEEP && (live_data_screen || rpm_warn_possible || ui_ext_rpm_is_flashing() || ui_ext_rpm_link_ramp_active())) {
         obd_data_snapshot_t obd;
         obd_data_snapshot_t display;
+        obd_data_freshness_t freshness;
 
-        obd_data_get_snapshot(&obd);
+        obd_data_get_fresh_snapshot(&obd, &freshness);
+        bool demo = ui_ext_showroom_is_active();
+        if (!demo) {
+            if (!ble_now) memset(&freshness, 0xff, sizeof(freshness));
+            obd_data_apply_freshness(&obd, &freshness);
+        }
+        bool rpm_valid = demo || obd_data_sample_is_fresh(&freshness, OBD_SAMPLE_RPM);
+        bool speed_valid = demo || obd_data_sample_is_fresh(&freshness, OBD_SAMPLE_SPEED);
         rpm_for_warning = obd.rpm;
         ui_display_filter_apply(&obd, &display, lv_tick_get());
         clt       = display.coolant_temp;
@@ -584,10 +612,12 @@ void my_timerMain(lv_timer_t * timer)
         bat_mv    = display.bat_mv;
         boost_x10 = display.boost_x10; // boost gauge pressure 0.1bar, -32768=invalid
         afr_x100  = display.afr_x100;   // air-fuel ratio ×100, -1=invalid
-        usRpm     = display.rpm;
-        ucSpeed   = display.speed;
+        usRpm     = rpm_valid ? display.rpm : UINT16_MAX;
+        ucSpeed   = speed_valid ? display.speed : UINT16_MAX;
         int8_t decoded_gear = obd.gear;
-        if (decoded_gear >= 0 && decoded_gear <= GEAR_8) {
+        if (!rpm_valid || !speed_valid) {
+            s_gear_unknown = true;
+        } else if (decoded_gear >= 0 && decoded_gear <= GEAR_8) {
             eGear = (enGear)decoded_gear;
             s_gear_unknown = false;
         } else if (vehicle_profile_get_active()->obd_gear_did != 0) {
@@ -647,22 +677,37 @@ void my_timerMain(lv_timer_t * timer)
     }
     /*RPM page: the shared display filter handles jitter; keep the digits and arc in sync.*/
     if (scr == ui_ScreenPageRpm) {
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+        ui_peak_marker_sample(UI_PEAK_RPM, usRpm);
+#endif
         static int32_t s_last_rpm = -1;
         if ((int32_t)usRpm != s_last_rpm) {
             s_last_rpm = (int32_t)usRpm;
-            lv_label_set_text_fmt(ui_RpmPageArcLabelRpmText, "%d", (int)usRpm);
-            lv_arc_set_value(ui_RpmPageArcRpmBack, (uint32_t)usRpm*100/SWEEP_RPM_PEAK);
+            if (usRpm == UINT16_MAX) {
+                lv_label_set_text(ui_RpmPageArcLabelRpmText, "--");
+                lv_arc_set_value(ui_RpmPageArcRpmBack, 0);
+            } else {
+                lv_label_set_text_fmt(ui_RpmPageArcLabelRpmText, "%d", (int)usRpm);
+                lv_arc_set_value(ui_RpmPageArcRpmBack, (uint32_t)usRpm*100/SWEEP_RPM_PEAK);
+            }
         }
     }
     /*Speed page: same as above, refresh only while the page is active*/
     if (scr == ui_ScreenPageSpeed) {
         static int32_t s_disp_spd = 0;
         static int32_t s_last_spd = -1;
-        if (IN_SWEEP) { s_disp_spd = ucSpeed; }
+        bool speed_valid = ucSpeed != UINT16_MAX;
+        if (!speed_valid) { s_disp_spd = 0; }
+        else if (IN_SWEEP) { s_disp_spd = ucSpeed; }
         else { s_disp_spd = anim_step_i32(s_disp_spd, (int32_t)ucSpeed, ANIM_THRESH_SPD); }
-        if (s_disp_spd != s_last_spd) {
-            s_last_spd = s_disp_spd;
-            lv_label_set_text_fmt(ui_SpeedPageArcLabelSpeedText, "%d", (int)s_disp_spd);
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+        ui_peak_marker_sample(UI_PEAK_SPEED, s_disp_spd);
+#endif
+        int32_t speed_key = speed_valid ? s_disp_spd : -2;
+        if (speed_key != s_last_spd) {
+            s_last_spd = speed_key;
+            if (!speed_valid) lv_label_set_text(ui_SpeedPageArcLabelSpeedText, "--");
+            else lv_label_set_text_fmt(ui_SpeedPageArcLabelSpeedText, "%d", (int)s_disp_spd);
 #if CONFIG_OBD_HW_VERSION_M5STOPWATCH
             // The large StopWatch dial uses a road-speed scale of 0..240 km/h.
             lv_arc_set_value(ui_SpeedPageArcSpeedBack, (s_disp_spd >= 240) ? 100 : (uint32_t)s_disp_spd * 100 / 240);
@@ -811,8 +856,8 @@ void my_timerMain(lv_timer_t * timer)
 
     /* Dynamically update the EasterEgg (device info) page: role + OBD link state + build tag. */
     if (scr == ui_ScreenPageEasterEgg && ui_LabelEasterEggInfo) {
-        static char s_last_easteregg_info[192];
-        char info_text[192];
+        static char s_last_easteregg_info[256];
+        char info_text[256];
         const char *mode_str = is_slave ? "SLAVE"
                              : (user_cfg->device_role == ESPNOW_ROLE_MASTER) ? "MASTER" : "STANDALONE";
         const char *conn_label, *conn_name;
@@ -820,7 +865,7 @@ void my_timerMain(lv_timer_t * timer)
         if (is_slave) {
             const char *mname = espnow_link_get_master_name();
             conn_label = "SLAVE";
-            conn_name  = (ble_now && mname[0]) ? mname : "--";
+            conn_name  = (ble_now && mname[0]) ? obd_project_display_master_name(mname) : "--";
         } else {
             const char *dev_name = elm327_ble_get_connected_name();
             if(!dev_name || dev_name[0] == '\0') dev_name = "Not set";
@@ -832,7 +877,7 @@ void my_timerMain(lv_timer_t * timer)
             "MODE: %s\n"
             "%s: %s\n"
             "Status: %s\n"
-            "BUILD %s",
+            "BUILD %s\n" OBD_PROJECT_CREDITS,
             mode_str, conn_label, conn_name,
             ble_now ? (is_slave ? "Linked" : "Connected")
                     : (is_slave ? "Waiting" : "Disconnected"),
@@ -944,12 +989,14 @@ bool ui_stopwatch_button_navigate(bool next)
     if (screen == ui_ScreenPageSpeed)      { if (next) BUTTON_GO(Temp); else BUTTON_GO(Rpm); }
     if (screen == ui_ScreenPageTemp)       { if (next) BUTTON_GO(Info); else BUTTON_GO(Speed); }
     if (screen == ui_ScreenPageInfo)       { if (next) BUTTON_GO(GForce); else BUTTON_GO(Temp); }
-    if (screen == ui_ScreenPageGForce)     { if (next) BUTTON_GO(Expression); else BUTTON_GO(Info); }
-    if (screen == ui_ScreenPageExpression) { if (next) BUTTON_GO(Needle); else BUTTON_GO(GForce); }
-    if (screen == ui_ScreenPageNeedle)     { if (next) BUTTON_GO(OilPressure); else BUTTON_GO(Expression); }
-    if (screen == ui_ScreenPageOilPressure){ if (next) BUTTON_GO(EasterEgg); else BUTTON_GO(Needle); }
+    if (screen == ui_ScreenPageGForce)     { if (next) BUTTON_GO(Needle); else BUTTON_GO(Info); }
+    if (screen == ui_ScreenPageNeedle)     { if (next) BUTTON_GO(OilPressure); else BUTTON_GO(GForce); }
+    if (screen == ui_ScreenPageEasterEgg) { if (next) BUTTON_GO(Gear); else BUTTON_GO(Expression); }
+    if (screen == ui_ScreenPageExpression && next) BUTTON_GO(EasterEgg);
+    if (screen == ui_ScreenPageOilPressure && !next) BUTTON_GO(Needle);
 
-    if (screen == ui_ScreenPageEasterEgg) {
+    // Optional theme pages sit between the chart and the final expression page.
+    if (screen == ui_ScreenPageOilPressure || screen == ui_ScreenPageExpression) {
         uint8_t count = theme_page_list_count();
         if (count > 0) {
             ui_theme_gauge_page_index = next ? 0 : count - 1;
@@ -959,7 +1006,7 @@ bool ui_stopwatch_button_navigate(bool next)
             }
             BUTTON_GO(ThemeGauge);
         }
-        BUTTON_GO(Gear);
+        if (next) BUTTON_GO(Expression); else BUTTON_GO(OilPressure);
     }
     if (screen == ui_ScreenPageThemeGauge) {
         uint8_t count = theme_page_list_count();
@@ -968,7 +1015,7 @@ bool ui_stopwatch_button_navigate(bool next)
         } else if (!next && ui_theme_gauge_page_index > 0) {
             --ui_theme_gauge_page_index;
         } else {
-            BUTTON_GO(EasterEgg);
+            if (next) BUTTON_GO(Expression); else BUTTON_GO(OilPressure);
         }
         lv_obj_t *old_theme_page = ui_ScreenPageThemeGauge;
         ui_ScreenPageThemeGauge = NULL;
@@ -980,7 +1027,9 @@ bool ui_stopwatch_button_navigate(bool next)
         return true;
     }
 
+    if (ui_settings_handle_back()) return true;
     if (screen == ui_ScreenPageGForceCal)  BUTTON_GO(GForce);
+    if (screen == ui_ScreenPageRingSettings) BUTTON_GO(Settings);
     if (screen == ui_ScreenPageTempCustom) BUTTON_GO(Temp);
     if (screen == ui_ScreenPageInfoCustom) BUTTON_GO(Info);
     if (screen == ui_ScreenPageNeedleConfig) BUTTON_GO(Needle);
@@ -988,7 +1037,7 @@ bool ui_stopwatch_button_navigate(bool next)
         screen == ui_ScreenPageOilWarn) BUTTON_GO(OilPressure);
     if (screen == ui_ScreenPageRpmWarn) BUTTON_GO(Rpm);
     if (screen == ui_ScreenPageSettings || screen == ui_ScreenPageODBProtocal) BUTTON_GO(EasterEgg);
-    if (screen == ui_ScreenPageMultiGauge || screen == ui_ScreenPageFeedback) BUTTON_GO(Settings);
+    if (screen == ui_ScreenPageMultiGauge || screen == ui_ScreenPageFeedback || screen == ui_ScreenPageCxSettings) BUTTON_GO(Settings);
     if (screen == ui_ScreenPageBLEScan) {
         if (nvs_cfg_get()->device_role == ESPNOW_ROLE_SLAVE) gauge_pair_ble_scan_stop();
         else elm327_ble_scan_only_stop();
@@ -997,12 +1046,24 @@ bool ui_stopwatch_button_navigate(bool next)
 #undef BUTTON_GO
     return false; // boot and OTA screens have their own controls
 }
+
+static bool ui_stopwatch_carousel_gesture(lv_event_t *e)
+{
+    if (lv_event_get_code(e) != LV_EVENT_GESTURE) return false;
+    lv_dir_t dir = lv_indev_get_gesture_dir(lv_indev_get_act());
+    if (dir != LV_DIR_LEFT && dir != LV_DIR_RIGHT) return false;
+    lv_indev_wait_release(lv_indev_get_act());
+    return ui_stopwatch_button_navigate(dir == LV_DIR_LEFT);
+}
 #endif
 
 // The Gear/RPM/Speed pages sit at the front of the carousel: Gear→RPM→Speed→Temp→… (swipe left = next / swipe right = previous)
 // Swipe down from Gear enters the theme-provided gauge page (only if the active theme declares one).
 void ui_event_gear_background(lv_event_t * e)
 {
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    if (ui_stopwatch_carousel_gesture(e)) return;
+#endif
     lv_event_code_t event_code = lv_event_get_code(e);
     if(event_code == LV_EVENT_GESTURE) {
         lv_dir_t dir = lv_indev_get_gesture_dir(lv_indev_get_act());
@@ -1027,6 +1088,9 @@ void ui_event_gear_background(lv_event_t * e)
 // page also goes to Info page (creating a loop: theme pages ↔ Info).
 void ui_event_theme_gauge_background(lv_event_t * e)
 {
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    if (ui_stopwatch_carousel_gesture(e)) return;
+#endif
     lv_event_code_t event_code = lv_event_get_code(e);
     if(event_code == LV_EVENT_GESTURE) {
         lv_dir_t dir = lv_indev_get_gesture_dir(lv_indev_get_act());
@@ -1060,6 +1124,9 @@ void ui_event_theme_gauge_background(lv_event_t * e)
 }
 void ui_event_rpm_background(lv_event_t * e)
 {
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    if (ui_stopwatch_carousel_gesture(e)) return;
+#endif
     lv_event_code_t event_code = lv_event_get_code(e);
     if(event_code == LV_EVENT_GESTURE) {
         lv_dir_t dir = lv_indev_get_gesture_dir(lv_indev_get_act());
@@ -1079,6 +1146,9 @@ void ui_event_rpm_background(lv_event_t * e)
 }
 void ui_event_speed_background(lv_event_t * e)
 {
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    if (ui_stopwatch_carousel_gesture(e)) return;
+#endif
     lv_event_code_t event_code = lv_event_get_code(e);
     if(event_code == LV_EVENT_GESTURE) {
         lv_dir_t dir = lv_indev_get_gesture_dir(lv_indev_get_act());
@@ -1096,6 +1166,9 @@ void ui_event_speed_background(lv_event_t * e)
 // Swipe left = next page, swipe right = previous page
 void ui_event_temp_background(lv_event_t * e)
 {
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    if (ui_stopwatch_carousel_gesture(e)) return;
+#endif
     lv_event_code_t event_code = lv_event_get_code(e);
     if(event_code == LV_EVENT_GESTURE) {
         lv_dir_t dir = lv_indev_get_gesture_dir(lv_indev_get_act());
@@ -1128,6 +1201,9 @@ void ui_event_temp_custom_background(lv_event_t * e)
 
 void ui_event_oil_pressure_background(lv_event_t * e)
 {
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    if (ui_stopwatch_carousel_gesture(e)) return;
+#endif
     lv_event_code_t event_code = lv_event_get_code(e);
     if(event_code == LV_EVENT_GESTURE) {
         lv_dir_t dir = lv_indev_get_gesture_dir(lv_indev_get_act());
@@ -1203,6 +1279,9 @@ void ui_event_rpm_warn_background(lv_event_t * e)
 //  swipe right → Info, swipe left → OilPressure, swipe down → data-source selection
 void ui_event_needle_background(lv_event_t * e)
 {
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    if (ui_stopwatch_carousel_gesture(e)) return;
+#endif
     lv_event_code_t code = lv_event_get_code(e);
     if(code == LV_EVENT_GESTURE){
         lv_dir_t dir = lv_indev_get_gesture_dir(lv_indev_get_act());
@@ -1237,6 +1316,9 @@ void ui_event_needle_config_background(lv_event_t * e)
 
 void ui_event_info_background(lv_event_t * e)
 {
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    if (ui_stopwatch_carousel_gesture(e)) return;
+#endif
     lv_event_code_t event_code = lv_event_get_code(e);
     if(event_code == LV_EVENT_GESTURE) {
         lv_dir_t dir = lv_indev_get_gesture_dir(lv_indev_get_act());
@@ -1261,6 +1343,9 @@ void ui_event_info_background(lv_event_t * e)
 
 void ui_event_gforce_background(lv_event_t * e)
 {
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    if (ui_stopwatch_carousel_gesture(e)) return;
+#endif
     if (lv_event_get_code(e) != LV_EVENT_GESTURE) return;
     lv_dir_t dir = lv_indev_get_gesture_dir(lv_indev_get_act());
     lv_indev_wait_release(lv_indev_get_act());
@@ -1268,12 +1353,20 @@ void ui_event_gforce_background(lv_event_t * e)
         _ui_screen_change(&ui_ScreenPageInfo, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0, &ui_ScreenPageInfo_screen_init);
     else if (dir == LV_DIR_LEFT)
         _ui_screen_change(&ui_ScreenPageExpression, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0, &ui_ScreenPageExpression_screen_init);
-    else if (dir == LV_DIR_BOTTOM)
+    else if (dir == LV_DIR_BOTTOM) {
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+        ui_settings_open_g_calibration(false);
+#else
         _ui_screen_change(&ui_ScreenPageGForceCal, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0, &ui_ScreenPageGForceCal_screen_init);
+#endif
+    }
 }
 
 void ui_event_expression_background(lv_event_t * e)
 {
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    if (ui_stopwatch_carousel_gesture(e)) return;
+#endif
     if (lv_event_get_code(e) != LV_EVENT_GESTURE) return;
     lv_dir_t dir = lv_indev_get_gesture_dir(lv_indev_get_act());
     lv_indev_wait_release(lv_indev_get_act());
@@ -1281,15 +1374,24 @@ void ui_event_expression_background(lv_event_t * e)
         _ui_screen_change(&ui_ScreenPageGForce, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0, &ui_ScreenPageGForce_screen_init);
     else if (dir == LV_DIR_LEFT)
         _ui_screen_change(&ui_ScreenPageNeedle, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0, &ui_ScreenPageNeedle_screen_init);
-    else if (dir == LV_DIR_BOTTOM)
+    else if (dir == LV_DIR_BOTTOM) {
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+        ui_settings_open_g_calibration(false);
+#else
         _ui_screen_change(&ui_ScreenPageGForceCal, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0, &ui_ScreenPageGForceCal_screen_init);
+#endif
+    }
 }
 
 void ui_event_gforce_cal_background(lv_event_t * e)
 {
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    ui_settings_detail_event(e);
+#else
     if (lv_event_get_code(e) != LV_EVENT_GESTURE) return;
     lv_indev_wait_release(lv_indev_get_act());
     _ui_screen_change(&ui_ScreenPageGForce, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0, &ui_ScreenPageGForce_screen_init);
+#endif
 }
 
 void ui_event_info_custom_background(lv_event_t * e)
@@ -1305,6 +1407,9 @@ void ui_event_info_custom_background(lv_event_t * e)
 }
 void ui_event_easter_egg_background(lv_event_t * e)
 {
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    if (ui_stopwatch_carousel_gesture(e)) return;
+#endif
     lv_event_code_t event_code = lv_event_get_code(e);
     if(event_code == LV_EVENT_CLICKED && !ui_ext_showroom_is_active()) {
         ui_ext_showroom_handle_tap();  // 10 rapid taps on the version page enter showroom
@@ -1329,9 +1434,11 @@ void ui_event_easter_egg_background(lv_event_t * e)
             }
         }
         else if(dir == LV_DIR_TOP) {
+#if !CONFIG_OBD_HW_VERSION_M5STOPWATCH
             // swipe up → BLE scan page
             lv_indev_wait_release(lv_indev_get_act());
             _ui_screen_change(&ui_ScreenPageBLEScan, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0, &ui_ScreenPageBLEScan_screen_init);
+#endif
         }
         else if(dir == LV_DIR_BOTTOM) {
             // swipe down → settings page
@@ -1376,6 +1483,11 @@ void ui_ota_mode_refresh(void)
 
 void ui_init(void)
 {
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    ui_peak_config_t peak_config = ui_peak_marker_config();
+    ESP_LOGI("ui_peak", "Settings directory / white icons ready; peak marker %s / %upx / %us",
+             peak_config.enabled ? "ON" : "OFF", peak_config.width_px, peak_config.lifetime_s);
+#endif
     // OPTIMIZATION: Logo is already created and displayed by app_main.c before this function
     // to ensure both Master (with 2MB theme) and Slave show logo simultaneously.
     // Here we only load theme and create other UI elements.
@@ -1462,6 +1574,11 @@ void ui_event_obd_prot_background(lv_event_t * e)
     if(code == LV_EVENT_GESTURE){
         lv_dir_t dir = lv_indev_get_gesture_dir(lv_indev_get_act());
         if(dir == LV_DIR_LEFT || dir == LV_DIR_RIGHT){
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+            if (dir == LV_DIR_LEFT) return;
+            lv_indev_wait_release(lv_indev_get_act());
+            if (ui_settings_handle_back()) return;
+#endif
             lv_indev_wait_release(lv_indev_get_act());
             _ui_screen_change(&ui_ScreenPageTemp, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0, &ui_ScreenPageTemp_screen_init);
         }
@@ -1484,6 +1601,9 @@ void ui_event_obd_prot_background(lv_event_t * e)
 /* BLE scan page events - swipe left returns to the device info page */
 void ui_event_ble_scan_background(lv_event_t * e)
 {
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    ui_settings_detail_event(e);
+#else
     lv_event_code_t code = lv_event_get_code(e);
     if(code == LV_EVENT_GESTURE){
         lv_dir_t dir = lv_indev_get_gesture_dir(lv_indev_get_act());
@@ -1498,11 +1618,15 @@ void ui_event_ble_scan_background(lv_event_t * e)
             _ui_screen_change(&ui_ScreenPageEasterEgg, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0, &ui_ScreenPageEasterEgg_screen_init);
         }
     }
+#endif
 }
 
-/* Settings page events - swipe left/right returns to the device info page */
+/* StopWatch settings use the visible directory; original boards keep their gestures. */
 void ui_event_settings_background(lv_event_t * e)
 {
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    ui_settings_detail_event(e);
+#else
     lv_event_code_t code = lv_event_get_code(e);
     if(code == LV_EVENT_GESTURE){
         lv_dir_t dir = lv_indev_get_gesture_dir(lv_indev_get_act());
@@ -1514,25 +1638,27 @@ void ui_event_settings_background(lv_event_t * e)
             lv_indev_wait_release(lv_indev_get_act());
             _ui_screen_change(&ui_ScreenPageMultiGauge, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0, &ui_ScreenPageMultiGauge_screen_init);
         }
-#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
-        else if(dir == LV_DIR_TOP){
-            lv_indev_wait_release(lv_indev_get_act());
-            _ui_screen_change(&ui_ScreenPageFeedback, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0, &ui_ScreenPageFeedback_screen_init);
-        }
-#endif
     }
+#endif
 }
 
 void ui_event_feedback_background(lv_event_t * e)
 {
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    ui_settings_detail_event(e);
+#else
     if (lv_event_get_code(e) != LV_EVENT_GESTURE) return;
     lv_indev_wait_release(lv_indev_get_act());
     _ui_screen_change(&ui_ScreenPageSettings, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0, &ui_ScreenPageSettings_screen_init);
+#endif
 }
 
 // Triple-gauge settings page gestures: swipe up/left/right → return to the settings page
 void ui_event_multi_gauge_background(lv_event_t * e)
 {
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    ui_settings_detail_event(e);
+#else
     lv_event_code_t code = lv_event_get_code(e);
     if(code == LV_EVENT_GESTURE){
         lv_dir_t dir = lv_indev_get_gesture_dir(lv_indev_get_act());
@@ -1541,4 +1667,5 @@ void ui_event_multi_gauge_background(lv_event_t * e)
             _ui_screen_change(&ui_ScreenPageSettings, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0, &ui_ScreenPageSettings_screen_init);
         }
     }
+#endif
 }

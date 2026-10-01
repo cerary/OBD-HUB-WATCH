@@ -45,6 +45,14 @@ typedef struct {
     brake_rs485_status_t brake_rs485_status;
 } obd_data_snapshot_t;
 
+typedef enum {
+    OBD_SAMPLE_CLT, OBD_SAMPLE_IAT, OBD_SAMPLE_OIL, OBD_SAMPLE_LOAD,
+    OBD_SAMPLE_TPS, OBD_SAMPLE_RPM, OBD_SAMPLE_SPEED, OBD_SAMPLE_BAT,
+    OBD_SAMPLE_OILP, OBD_SAMPLE_BKT, OBD_SAMPLE_BOOST, OBD_SAMPLE_AFR,
+    OBD_SAMPLE_COUNT
+} obd_sample_channel_t;
+typedef struct { uint32_t age_ms[OBD_SAMPLE_COUNT]; } obd_data_freshness_t;
+
 void obd_data_set_rpm(uint16_t rpm);
 // RPM override layer: for multi-gauge linkage tests. When enabled, get_rpm returns val; disabling restores the real value.
 void obd_data_rpm_override_set(bool en, uint16_t val);
@@ -77,6 +85,15 @@ int16_t  obd_data_get_brake_temp_x10(void); // -1000 = invalid
 int8_t   obd_data_get_gear(void);            // 127 = invalid (falls back to the computed gear)
 int16_t  obd_data_get_afr_x100(void);        // -1 = invalid
 void     obd_data_get_snapshot(obd_data_snapshot_t *out);
+// UINT32_MAX means this link/session has never supplied the channel.
+void obd_data_get_fresh_snapshot(obd_data_snapshot_t *out, obd_data_freshness_t *freshness);
+bool obd_data_sample_is_fresh(const obd_data_freshness_t *freshness, obd_sample_channel_t channel);
+// Remove expired values from a snapshot. Missing RPM/speed become 0 here;
+// callers must use freshness to distinguish missing samples from measured zero.
+void obd_data_apply_freshness(obd_data_snapshot_t *out, const obd_data_freshness_t *freshness);
+// Clear values, filter history and freshness on a lost/replaced BLE session.
+// This never feeds the independent CX parking policy with synthetic zeros.
+void obd_data_invalidate_freshness(void);
 enGear calculate_gear(float rpm, float speed);
 void vMileageDataStatisticTask(void);
 

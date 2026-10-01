@@ -4,6 +4,7 @@
 // Project name: OBD_PRJ
 
 #include "../ui.h"
+#include "../ui_peak_marker.h"
 
 void ui_ScreenPageSpeed_screen_init(void)
 {
@@ -22,7 +23,7 @@ void ui_ScreenPageSpeed_screen_init(void)
 
     ui_SpeedPageArcSpeedBack = lv_arc_create(ui_ScreenPageSpeed);
 #if CONFIG_OBD_HW_VERSION_M5STOPWATCH
-    lv_obj_set_size(ui_SpeedPageArcSpeedBack, 414, 414);
+    lv_obj_set_size(ui_SpeedPageArcSpeedBack, 416, 416);
 #else
     lv_obj_set_size(ui_SpeedPageArcSpeedBack, 340, 340);
 #endif
@@ -115,6 +116,9 @@ void ui_ScreenPageSpeed_screen_init(void)
 
 
     lv_obj_add_event_cb(ui_SpeedPageArcSpeedBack, ui_event_speed_background, LV_EVENT_ALL, NULL);
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    ui_peak_marker_register(ui_SpeedPageArcSpeedBack, UI_PEAK_SPEED, 240);
+#endif
     lv_obj_move_foreground(ui_SpinnerSpeedPage);   // bring the ring to the front
     lv_obj_add_event_cb(ui_ScreenPageSpeed, ui_event_speed_background, LV_EVENT_GESTURE, NULL);
 

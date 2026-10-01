@@ -1,3 +1,5 @@
+> Retained upstream reference. The supported StopWatch V1.0 target and current build instructions are described in the project root README.
+
 # Theme Partition System
 
 This branch implements a complete theme partition system that separates UI presentation from core firmware logic.

@@ -18,10 +18,11 @@ extern "C" {
 #include "ui_theme.h"
 #include "esp_log.h"
 #include "app_obd_dsp/obd_data_cache.h"
+#include "app_obd_dsp/project_identity.h"
 
 #define USE_GIF_LOGO        0
 #define USE_GIF_EASTER_EGG  0
-// Custom boot logo switch: 1=use the customer's custom image (imgBootLogoCustom) as the boot animation; 0=use the default SKY GAUGE
+// Custom boot logo switch: 1=use the customer's custom image (imgBootLogoCustom) as the boot animation; 0=use the default OBD HUB WATCH
 // Before setting 1, convert the customer PNG to an LVGL C array (variable name imgBootLogoCustom) in the images/ directory
 #define USE_CUSTOM_BOOT_LOGO 0
 // Custom RPM-warning flash images: 1=flash 3 images in a loop (replacing red/black); 0=default red/black flash
@@ -204,6 +205,27 @@ void ui_event_info_custom_background(lv_event_t * e);
 void ui_ScreenPageSettings_screen_init(void);
 extern lv_obj_t * ui_ScreenPageSettings;
 void ui_event_settings_background(lv_event_t * e);
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+extern lv_obj_t *ui_ScreenPageBasicSettings;
+extern lv_obj_t *ui_ScreenPageOBDConnect;
+extern lv_obj_t *ui_ScreenPageMoreSettings;
+void ui_ScreenPageBasicSettings_screen_init(void);
+void ui_ScreenPageOBDConnect_screen_init(void);
+void ui_ScreenPageMoreSettings_screen_init(void);
+bool ui_settings_handle_back(void);
+void ui_settings_detail_event(lv_event_t *e);
+void ui_settings_add_back_button(lv_obj_t *screen, lv_coord_t y);
+void ui_settings_open_g_calibration(bool from_settings);
+void ui_settings_refresh(void);
+void ui_ble_scan_stop(void);
+#endif
+void ui_ScreenPageCxSettings_screen_init(void);
+extern lv_obj_t *ui_ScreenPageCxSettings;
+void ui_cx_power_update(void);
+extern lv_obj_t *ui_ScreenPageRingSettings;
+void ui_ScreenPageRingSettings_screen_init(void);
+extern lv_obj_t *ui_ScreenPagePeakSettings;
+void ui_ScreenPagePeakSettings_screen_init(void);
 void ui_ScreenPageFeedback_screen_init(void);
 extern lv_obj_t * ui_ScreenPageFeedback;
 void ui_event_feedback_background(lv_event_t * e);
@@ -236,7 +258,7 @@ void ui_ScreenPageNeedleConfig_screen_init(void);
 extern lv_obj_t * ui_ScreenPageNeedleConfig;
 void ui_event_needle_config_background(lv_event_t * e);
 
-// SCREEN: ui_ScreenPageMultiGauge (entered by swiping down on the settings page: triple-gauge master/slave + master selection)
+// SCREEN: ui_ScreenPageMultiGauge (StopWatch: SETTINGS > MORE; original boards: swipe down)
 void ui_ScreenPageMultiGauge_screen_init(void);
 extern lv_obj_t * ui_ScreenPageMultiGauge;
 void ui_event_multi_gauge_background(lv_event_t * e);
@@ -308,6 +330,7 @@ LV_FONT_DECLARE(ui_font_FontTypoderSize44);
 LV_FONT_DECLARE(ui_font_FontTypoderSize56);
 LV_FONT_DECLARE(ui_font_FontTypoderSize100);
 LV_FONT_DECLARE(ui_font_FontTypoderSize140);
+LV_FONT_DECLARE(ui_font_FontTypoderSize90);
 
 
 // UI INIT

@@ -124,5 +124,10 @@ void ui_ScreenPageODBProtocal_screen_init(void)
     const nvs_user_cfg_t *cfg = nvs_cfg_get();
     lv_roller_set_selected(ui_RollerODBProtocalChoose, cfg->protocol, LV_ANIM_OFF);
     ui_helpers_enable_option_feedback(ui_RollerODBProtocalChoose);
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    lv_obj_clear_flag(ui_RollerODBProtocalChoose, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    lv_obj_align(ui_LabelSureTipText, LV_ALIGN_CENTER, 0, 108);
+    ui_settings_add_back_button(ui_ScreenPageODBProtocal,166);
+#endif
 
 }

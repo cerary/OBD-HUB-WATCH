@@ -1,3 +1,5 @@
+> Retained upstream reference. The supported StopWatch V1.0 target and current build instructions are described in the project root README.
+
 # OBD BRZ Gauge 中文说明
 
 > 📖 完整文档索引：[项目主 README](../README.md) · English: [README.en.md](README.en.md)

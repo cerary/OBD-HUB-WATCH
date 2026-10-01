@@ -14,6 +14,8 @@
 #define NS_CFG                "cfg"
 #define KEY_CFG               "settings"
 #define KEY_CHART_ALARM       "chartalarm"
+#define KEY_STATUS_RING       "statusring"
+static status_ring_config_t s_status_ring = {2400, 4000, 5500, 100, 100, {0,0,0}};
 #define CHART_ALARM_N         12   // = DISP_ITEM_COUNT (must stay in sync with disp_item_t in ui.c)
 #define CHART_ALARM_OFF       32767 // "off" sentinel for alarm thresholds (unreachable, avoids false alarms)
 #define KEY_MG_EXTRA          "mgextra"   // multi-gauge boot animation settings
@@ -45,7 +47,7 @@ static SemaphoreHandle_t s_mux;
 static int16_t s_chart_alarm[CHART_ALARM_N] = {
     CHART_ALARM_OFF, CHART_ALARM_OFF, CHART_ALARM_OFF, CHART_ALARM_OFF,
     CHART_ALARM_OFF, CHART_ALARM_OFF, CHART_ALARM_OFF, CHART_ALARM_OFF,
-    80, 6000, CHART_ALARM_OFF
+    80, 6000, CHART_ALARM_OFF, CHART_ALARM_OFF
 };
 
 // Multi-gauge boot animation settings (separate blob):
@@ -72,12 +74,29 @@ esp_err_t nvs_storage_init(void)
 
     load_blob(NS_CFG, KEY_CFG, &s_cfg, sizeof(s_cfg));
 
+    {
+        nvs_handle_t h;
+        status_ring_config_t saved;
+        size_t size = sizeof(saved);
+        if (nvs_open(NS_CFG, NVS_READONLY, &h) == ESP_OK) {
+            if (nvs_get_blob(h, KEY_STATUS_RING, &saved, &size) == ESP_OK &&
+                size == sizeof(saved) && status_ring_config_valid(&saved)) s_status_ring = saved;
+            nvs_close(h);
+        }
+    }
+
     // Mileage/trip stats are no longer persisted (see s_stat declaration); stay {0} and start fresh each boot.
     {   // Chart alarm thresholds: load if present in NVS; otherwise keep static defaults (don't overwrite to 0).
         nvs_handle_t h; size_t sz = sizeof(s_chart_alarm);
         if (nvs_open(NS_CFG, NVS_READONLY, &h) == ESP_OK) {
             nvs_get_blob(h, KEY_CHART_ALARM, s_chart_alarm, &sz);
             nvs_close(h);
+        }
+        // The earlier 12-item array omitted AFR's initializer. Zero is outside
+        // AFR's selectable range (800..2200); repair that accidental alarm only.
+        if (s_chart_alarm[11] == 0) {
+            s_chart_alarm[11] = CHART_ALARM_OFF;
+            save_blob(NS_CFG, KEY_CHART_ALARM, s_chart_alarm, sizeof(s_chart_alarm));
         }
     }
     {   // Multi-gauge boot animation settings: same as above, load if present else keep defaults.
@@ -149,9 +168,9 @@ esp_err_t nvs_storage_init(void)
     /* Default-value repair for new fields (old NVS data has rsv[x] all zero) */
     if(s_cfg.brightness_day < 10) s_cfg.brightness_day = 100; // valid range 10-100; 0/unset/out-of-range all become 100
     if(s_cfg.default_page > 8) s_cfg.default_page = 0; // 7=G-force, 8=expression (StopWatch)
-    if(s_cfg.needle_source_idx >= 11) s_cfg.needle_source_idx = 0; // DISP_ITEM_COUNT=11 (CLT..BOOST)
+    if(s_cfg.needle_source_idx >= CHART_ALARM_N) s_cfg.needle_source_idx = 0;
     if(s_cfg.device_role > 2) s_cfg.device_role = ESPNOW_ROLE_STANDALONE; // role: 0=master 1=slave 2=standalone; out-of-range -> standalone
-    if(s_cfg.chart_source_idx >= 11) s_cfg.chart_source_idx = 8; // chart item out-of-range -> default OILP (old NVS byte 0=CLT is also fine, unify to OILP)
+    if(s_cfg.chart_source_idx >= CHART_ALARM_N) s_cfg.chart_source_idx = 8;
     if(s_cfg.g_cal_valid > 1) s_cfg.g_cal_valid = 0;
     if(s_cfg.g_front_mode > 2) s_cfg.g_front_mode = 0;
     if(s_cfg.touch_haptic_enabled > 1) s_cfg.touch_haptic_enabled = 1;
@@ -194,6 +213,15 @@ esp_err_t nvs_cfg_set(const nvs_user_cfg_t *cfg)
 /* Chart alarm thresholds */
 int16_t nvs_chart_alarm_get(uint8_t item){
     return (item < CHART_ALARM_N) ? s_chart_alarm[item] : CHART_ALARM_OFF;
+}
+
+const status_ring_config_t *nvs_status_ring_get(void) { return &s_status_ring; }
+esp_err_t nvs_status_ring_set(const status_ring_config_t *cfg)
+{
+    if (!status_ring_config_valid(cfg)) return ESP_ERR_INVALID_ARG;
+    esp_err_t err = save_blob(NS_CFG, KEY_STATUS_RING, cfg, sizeof(*cfg));
+    if (err == ESP_OK) s_status_ring = *cfg;
+    return err;
 }
 void nvs_chart_alarm_set(uint8_t item, int16_t raw_threshold){
     if(item >= CHART_ALARM_N) return;

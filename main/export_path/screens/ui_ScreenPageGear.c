@@ -31,7 +31,8 @@ void ui_ScreenPageGear_screen_init(void)
 
     ui_GearPageArcGearNumBack = lv_arc_create(ui_ScreenPageGear);
 #if CONFIG_OBD_HW_VERSION_M5STOPWATCH
-    lv_obj_set_size(ui_GearPageArcGearNumBack, 414, 414);
+    // Match RPM: 5 px screen margin + 10 px outer ring + 10 px gap.
+    lv_obj_set_size(ui_GearPageArcGearNumBack, 416, 416);
 #else
     lv_obj_set_size(ui_GearPageArcGearNumBack, 340, 340);
 #endif

@@ -5,8 +5,10 @@
 
 #include "ui_helpers.h"
 #include "ui_theme.h"
+#include "ui_status_ring.h"
 #include "bsp_obd_dsp/nvs_storage.h"
 #include "app_obd_dsp/vehicle_profiles.h"
+#include "app_obd_dsp/project_identity.h"
 #include <string.h>
 #if CONFIG_OBD_HW_VERSION_M5STOPWATCH
 #include "esp_heap_caps.h"
@@ -359,17 +361,17 @@ void _ui_switch_theme(int val)
 // ==================== Project-custom helpers (not SquareLine generated) ====================
 // Hand-written style code repeated across multiple screens, extracted here for sharing.
 
-// Outer bezel ring (360x360 on the original board, 452x452 on StopWatch).
-// Ring COLOR comes from the active UI theme. The original board retains each
-// page's requested width; StopWatch uses one 12-pixel width on every page.
+// Outer bezel ring (360x360 on the original board, 456x456 on StopWatch).
+// The original board retains its theme and each page's requested width;
+// StopWatch uses one 10-pixel ring recolored by the current page's status.
 // Callers keep their own lv_obj_move_foreground() after this.
 #if CONFIG_OBD_HW_VERSION_M5STOPWATCH
-#define STOPWATCH_RING_SIZE 452
-#define STOPWATCH_RING_WIDTH 12
+#define STOPWATCH_RING_SIZE 456
+#define STOPWATCH_RING_WIDTH 10
 
 // LVGL's rounded rectangle border produces uneven coverage at a few angles
 // on the 466-pixel AMOLED. Generate one symmetric alpha-only image instead;
-// all pages share it and recolor it to the active theme's ring color.
+// all pages share it and recolor it without regenerating the mask.
 static lv_img_dsc_t s_stopwatch_ring_img;
 
 static bool stopwatch_ring_mask_init(void)
@@ -427,21 +429,19 @@ static bool stopwatch_ring_mask_init(void)
 
 lv_obj_t * ui_helpers_create_ring(lv_obj_t * parent, uint8_t border_width)
 {
+#if !CONFIG_OBD_HW_VERSION_M5STOPWATCH
     const ui_theme_t *th = ui_theme_active();
-
     // Themed bezel artwork: any shape (notches, tick marks, gradients) instead
     // of the plain circle border. Colors are baked into the artwork.
     if(th->ring_img) {
         lv_obj_t *ring = lv_img_create(parent);
         lv_img_set_src(ring, th->ring_img);
-#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
-        // Match the drawn 452-pixel ring while preserving a 7-pixel edge gap.
-        lv_img_set_zoom(ring, 321);
-#endif
         lv_obj_set_align(ring, LV_ALIGN_CENTER);
         lv_obj_clear_flag(ring, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+        ui_status_ring_register(parent, ring, true);
         return ring;
     }
+#endif
 
 #if CONFIG_OBD_HW_VERSION_M5STOPWATCH
     if(stopwatch_ring_mask_init()) {
@@ -451,13 +451,14 @@ lv_obj_t * ui_helpers_create_ring(lv_obj_t * parent, uint8_t border_width)
         lv_obj_set_style_img_recolor(ring, ui_theme_color_lv(UI_COLOR_RING), LV_PART_MAIN);
         lv_obj_set_style_img_recolor_opa(ring, LV_OPA_COVER, LV_PART_MAIN);
         lv_obj_clear_flag(ring, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+        ui_status_ring_register(parent, ring, true);
         return ring;
     }
 #endif
 
     lv_obj_t *ring = lv_obj_create(parent);
 #if CONFIG_OBD_HW_VERSION_M5STOPWATCH
-    lv_obj_set_size(ring, 452, 452);
+    lv_obj_set_size(ring, STOPWATCH_RING_SIZE, STOPWATCH_RING_SIZE);
     border_width = STOPWATCH_RING_WIDTH;
 #else
     lv_obj_set_size(ring, 360, 360);
@@ -470,6 +471,7 @@ lv_obj_t * ui_helpers_create_ring(lv_obj_t * parent, uint8_t border_width)
     lv_obj_set_style_border_color(ring, ui_theme_color_lv(UI_COLOR_RING), LV_PART_MAIN);
     lv_obj_set_style_border_width(ring, border_width, LV_PART_MAIN);
     lv_obj_set_style_border_opa(ring, 255, LV_PART_MAIN);
+    ui_status_ring_register(parent, ring, false);
     return ring;
 }
 
@@ -510,7 +512,7 @@ lv_obj_t * ui_helpers_create_mini_brand(lv_obj_t *parent, lv_coord_t center_y, b
 #endif
     // Other vehicle profiles have no MINI identity. Use the project name.
     lv_obj_t *label = lv_label_create(parent);
-    lv_label_set_text(label, "SKY GAUGE");
+    lv_label_set_text(label, OBD_PROJECT_NAME);
     lv_obj_set_style_text_font(label, large ? &ui_font_FontTypoderSize36 : &ui_font_FontTypoderSize16, LV_PART_MAIN);
     lv_obj_set_style_text_color(label, ui_theme_color_lv(UI_COLOR_TEXT_PRIMARY), LV_PART_MAIN);
     lv_obj_align(label, LV_ALIGN_CENTER, 0, center_y);

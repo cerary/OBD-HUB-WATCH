@@ -58,8 +58,8 @@ bool disp_item_read_value(disp_item_t item,
         case DISP_ITEM_OIL: if (oil > -41) { *out = oil; return true; } return false;
         case DISP_ITEM_LOAD: if (load_pct >= 0) { *out = load_pct; return true; } return false;
         case DISP_ITEM_TPS: if (tps >= 0) { *out = tps; return true; } return false;
-        case DISP_ITEM_RPM: *out = rpm; return true;
-        case DISP_ITEM_SPEED: *out = speed; return true;
+        case DISP_ITEM_RPM: if (rpm != UINT16_MAX) { *out = rpm; return true; } return false;
+        case DISP_ITEM_SPEED: if (speed != UINT16_MAX) { *out = speed; return true; } return false;
         case DISP_ITEM_BAT: if (bat_mv > 0) { *out = bat_mv; return true; } return false;
         case DISP_ITEM_OILP: if (oilp_x10 >= 0) { *out = oilp_x10; return true; } return false;
         case DISP_ITEM_BKT: if (brake_x10 > -1000) { *out = brake_x10; return true; } return false;

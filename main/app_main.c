@@ -255,6 +255,12 @@ static void stopwatch_button_timer(lv_timer_t *timer)
         now_ms - s_right_g_click_ms < 380)
         s_right_g_second_pressed = true;
 
+    if ((left_released || right_released) && elm327_ble_cx_is_waiting()) {
+        s_right_g_click_pending = false;
+        s_right_g_second_pressed = false;
+        elm327_ble_cx_manual_resume();
+        return;
+    }
     if (left_released) {
         s_right_g_click_pending = false;
         s_right_g_second_pressed = false;

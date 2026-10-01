@@ -26,6 +26,7 @@ extern "C" {
 
 namespace {
 constexpr char TAG[] = "stopwatch";
+bool rear_power_ready = false;
 
 class PanelCO5300 final : public lgfx::Panel_AMOLED {
 public:
@@ -95,6 +96,26 @@ public:
 
 StopWatchDisplay display;
 M5PM1 pmic;
+bool configure_rear_power_wake() {
+    // StopWatch v1.0: rear pin 14 is Int_5V, not VBAT. Q2 makes
+    // PMG4_PORT_INT active-low when that input is powered. Its U27 diode
+    // joins Internal_5V after the USB VIN ADC, so readVin() cannot see it.
+    // GPIO3 is CHG_PROG; only disable its conflicting wake function.
+    // Use standard GPIO plus WAKE_EN: FUNC=0b10 is reserved in the datasheet.
+    if (pmic.gpioSetWakeEnable(M5PM1_GPIO_NUM_3, false) != M5PM1_OK ||
+        pmic.gpioSetFunc(M5PM1_GPIO_NUM_4, M5PM1_GPIO_FUNC_GPIO) != M5PM1_OK ||
+        pmic.gpioSetMode(M5PM1_GPIO_NUM_4, M5PM1_GPIO_MODE_INPUT) != M5PM1_OK ||
+        pmic.gpioSetPull(M5PM1_GPIO_NUM_4, M5PM1_GPIO_PULL_NONE) != M5PM1_OK ||
+        pmic.gpioSetWakeEdge(M5PM1_GPIO_NUM_4, M5PM1_GPIO_WAKE_FALLING) != M5PM1_OK ||
+        pmic.gpioSetWakeEnable(M5PM1_GPIO_NUM_4, true) != M5PM1_OK ||
+        pmic.verifyPinConfig() != M5PM1_OK) return false;
+    m5pm1_pin_status_t pin = {};
+    return pmic.getPinStatus(M5PM1_GPIO_NUM_4, &pin) == M5PM1_OK &&
+           pin.func == M5PM1_GPIO_FUNC_GPIO && pin.mode == M5PM1_GPIO_MODE_INPUT &&
+           pin.pull == M5PM1_GPIO_PULL_NONE && pin.wake_en &&
+           pin.wake_edge == M5PM1_GPIO_WAKE_FALLING;
+}
+
 M5IOE1 ioe;
 Cst820 touch;
 i2c_master_bus_handle_t i2c_bus = nullptr;
@@ -235,7 +256,15 @@ extern "C" bool stopwatch_board_init(void) {
     if (pmic.begin(i2c_bus) != M5PM1_OK) return false;
     pmic.setI2cSleepTime(0);
     pmic.wdtSet(0);
+    uint8_t wake_source = 0;
+    if (pmic.getWakeSource(&wake_source, M5PM1_CLEAN_ALL) == M5PM1_OK)
+        ESP_LOGI(TAG, "[POWER] cold boot wake source=0x%02X (USB=02 button=04 rear5V=20)", wake_source);
     pmic.ldoSetPowerHold(true);
+    rear_power_ready = configure_rear_power_wake();
+    if (rear_power_ready)
+        ESP_LOGI(TAG, "[POWER] v1.0 rear 5V detection / falling-edge wake verified");
+    else
+        ESP_LOGE(TAG, "[POWER] rear 5V setup failed; automatic shutdown blocked");
 
     auto ioe_result = ioe.begin(i2c_bus, 0x4F, M5IOE1_I2C_FREQ_400K);
     if (ioe_result != M5IOE1_OK)
@@ -386,16 +415,57 @@ extern "C" void stopwatch_board_feedback(stopwatch_feedback_t kind) {
 }
 
 extern "C" bool stopwatch_board_power_status(uint8_t *percent, bool *external_power) {
-    if (!percent || !external_power) return false;
+    if (!percent || !external_power || !rear_power_ready) return false;
     uint16_t battery_mv = 0;
     uint16_t input_mv = 0;
+    uint8_t rear_level = 1;
     if (pmic.readVbat(&battery_mv) != M5PM1_OK ||
-        pmic.readVin(&input_mv) != M5PM1_OK) return false;
+        pmic.readVin(&input_mv) != M5PM1_OK ||
+        pmic.gpioGetInput(M5PM1_GPIO_NUM_4, &rear_level) != M5PM1_OK) return false;
     if (battery_mv <= 3300) *percent = 0;
     else if (battery_mv >= 4200) *percent = 100;
     else *percent = static_cast<uint8_t>((battery_mv - 3300U) * 100U / 900U);
-    *external_power = input_mv > 4000;
+    const uint8_t sources = (input_mv > 4000 ? 1 : 0) | (rear_level == 0 ? 2 : 0);
+    *external_power = sources != 0;
+    static uint8_t last_sources = 0xff;
+    if (sources != last_sources) {
+        ESP_LOGI(TAG, "[POWER] USB_VIN=%umV REAR_5V=%s external=%s", input_mv,
+                 rear_level == 0 ? "ON" : "OFF", *external_power ? "ON" : "OFF");
+        last_sources = sources;
+    }
     return true;
+}
+
+extern "C" bool stopwatch_board_shutdown(void) {
+    // Verify the retained wake configuration and recheck both supplies before
+    // cutting power. A failed read or power returning cancels this shutdown.
+    rear_power_ready = configure_rear_power_wake();
+    uint8_t percent = 0;
+    bool external_power = true;
+    if (!stopwatch_board_power_status(&percent, &external_power) || external_power) {
+        ESP_LOGW(TAG, "[POWER] shutdown cancelled: supply present or wake/readback unverified");
+        return false;
+    }
+    // Called from the LVGL task: no new panel transfers can race this sequence.
+    display.waitForPanelTransfer();
+    if (feedback_task_handle) vTaskSuspend(feedback_task_handle);
+    ESP_LOGI(TAG, "[POWER] external 5V absent for 3s after CX sleep; entering PMIC L0");
+    if (pmic.ldoSetPowerHold(false) != M5PM1_OK) goto failed;
+    display.setPanelBrightness(0);
+    ioe.digitalWrite(M5IOE1_PIN_10, LOW);
+    ioe.digitalWrite(M5IOE1_PIN_3, LOW);
+    ioe.digitalWrite(M5IOE1_PIN_8, LOW);
+    if (pmic.shutdown() == M5PM1_OK) {
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        ESP_LOGE(TAG, "[POWER] PMIC power-off returned but CPU is still running");
+    }
+    ioe.digitalWrite(M5IOE1_PIN_8, HIGH);
+    ioe.digitalWrite(M5IOE1_PIN_3, HIGH);
+    display.setPanelBrightness(170);
+failed:
+    pmic.ldoSetPowerHold(true);
+    if (feedback_task_handle) vTaskResume(feedback_task_handle);
+    return false;
 }
 
 extern "C" bool stopwatch_board_imu_init(void) {

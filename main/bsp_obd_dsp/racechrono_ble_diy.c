@@ -18,6 +18,7 @@
 
 #include "app_obd_dsp/obd_data_cache.h"
 #include "app_obd_dsp/device_identity.h"
+#include "app_obd_dsp/project_identity.h"
 #include "app_obd_dsp/ota_update_ble.h"
 #include "bsp_obd_dsp/nvs_storage.h"
 #include "bsp_obd_dsp/espnow_link.h"
@@ -171,7 +172,7 @@ static void build_adv_identity(void)
         uint8_t mac[6] = {0};
         esp_read_mac(mac, ESP_MAC_WIFI_STA);
         memcpy(s_pair_mac, mac, sizeof(s_pair_mac));
-        snprintf(s_adv_name, sizeof(s_adv_name), "SkyGauge-%02X%02X", mac[4], mac[5]);
+        snprintf(s_adv_name, sizeof(s_adv_name), OBD_MASTER_DEVICE_PREFIX "-%02X%02X", mac[4], mac[5]);
     } else {
         memset(s_pair_mac, 0, sizeof(s_pair_mac));
         strncpy(s_adv_name, RC_DEVICE_NAME, sizeof(s_adv_name) - 1);

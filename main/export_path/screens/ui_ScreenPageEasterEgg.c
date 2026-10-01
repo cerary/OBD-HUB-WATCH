@@ -10,21 +10,82 @@
 #include "bsp_obd_dsp/espnow_link.h"
 #if CONFIG_OBD_HW_VERSION_M5STOPWATCH
 #include "stopwatch/stopwatch_board.h"
+#include "esp_heap_caps.h"
+#include <math.h>
+#include <stdlib.h>
+#include <string.h>
 #endif
 
 #ifndef OBD_GAUGE_BUILD_TAG
 #define OBD_GAUGE_BUILD_TAG "unknown"
 #endif
 
-// ui_ScreenPageOTAMode is lazily created; forward ref for the OTA button handler
-extern lv_obj_t *ui_ScreenPageOTAMode;
-
 #if CONFIG_OBD_HW_VERSION_M5STOPWATCH
 static lv_obj_t *s_supply_arc;
 static lv_obj_t *s_battery_arc;
-static lv_obj_t *s_supply_label;
-static lv_obj_t *s_battery_label;
 static lv_timer_t *s_power_timer;
+
+#define POWER_TEXT_MAX 9
+#define POWER_GLYPH_W 24
+#define POWER_GLYPH_H 28
+#define POWER_TEXT_RADIUS 200.f
+typedef struct {
+    lv_obj_t *glyphs[POWER_TEXT_MAX];
+    char text[POWER_TEXT_MAX + 1];
+    float center_angle;
+    uint32_t color;
+} power_arc_text_t;
+static power_arc_text_t s_supply_text, s_battery_text;
+
+static void free_power_glyph(lv_event_t *e)
+{
+    free(lv_event_get_user_data(e));
+}
+
+static void set_power_text(power_arc_text_t *arc_text, const char *text)
+{
+    if (!strcmp(arc_text->text, text)) return;
+    strncpy(arc_text->text, text, POWER_TEXT_MAX);
+    arc_text->text[POWER_TEXT_MAX] = '\0';
+    const lv_font_t *font = &ui_font_FontTypoderSize16;
+    const size_t count = strlen(arc_text->text);
+    const float width = lv_txt_get_width(arc_text->text, count, font, 0, LV_TEXT_FLAG_NONE);
+    float cursor = -width * 0.5f;
+    for (size_t i = 0; i < POWER_TEXT_MAX; ++i) {
+        lv_obj_t *glyph = arc_text->glyphs[i];
+        if (i >= count) { if (glyph) lv_obj_add_flag(glyph, LV_OBJ_FLAG_HIDDEN); continue; }
+        uint32_t next = i + 1 < count ? (uint8_t)arc_text->text[i+1] : 0;
+        float advance = lv_font_get_glyph_width(font, (uint8_t)arc_text->text[i], next);
+        float offset = cursor + advance * 0.5f;
+        cursor += advance;
+        if (arc_text->text[i] == ' ') { if (glyph) lv_obj_add_flag(glyph, LV_OBJ_FLAG_HIDDEN); continue; }
+        if (!glyph) {
+            void *buf = heap_caps_malloc(LV_CANVAS_BUF_SIZE_TRUE_COLOR_ALPHA(POWER_GLYPH_W, POWER_GLYPH_H),
+                                         MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+            if (!buf) continue;
+            glyph = lv_canvas_create(ui_ScreenPageEasterEgg);
+            arc_text->glyphs[i] = glyph;
+            lv_canvas_set_buffer(glyph, buf, POWER_GLYPH_W, POWER_GLYPH_H, LV_IMG_CF_TRUE_COLOR_ALPHA);
+            lv_obj_add_event_cb(glyph, free_power_glyph, LV_EVENT_DELETE, buf);
+            lv_obj_clear_flag(glyph, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+            lv_img_set_antialias(glyph, true);
+        }
+        lv_obj_clear_flag(glyph, LV_OBJ_FLAG_HIDDEN);
+        lv_canvas_fill_bg(glyph, lv_color_black(), LV_OPA_TRANSP);
+        lv_draw_label_dsc_t dsc;
+        lv_draw_label_dsc_init(&dsc);
+        dsc.font = font; dsc.color = lv_color_hex(arc_text->color); dsc.align = LV_TEXT_ALIGN_CENTER;
+        char letter[2] = {arc_text->text[i], 0};
+        lv_canvas_draw_text(glyph, 0, (POWER_GLYPH_H - font->line_height)/2, POWER_GLYPH_W, &dsc, letter);
+        // Bottom-half text reads left to right, with every glyph tangent to the bezel.
+        float angle = arc_text->center_angle - offset * 180.f / (POWER_TEXT_RADIUS * 3.14159265f);
+        float radians = angle * 3.14159265f / 180.f;
+        int tangent = (int)lroundf((angle - 90.f) * 10.f);
+        lv_img_set_angle(glyph, (uint16_t)((tangent % 3600 + 3600) % 3600));
+        lv_obj_align(glyph, LV_ALIGN_CENTER, (int)lroundf(POWER_TEXT_RADIUS*cosf(radians)),
+                     (int)lroundf(POWER_TEXT_RADIUS*sinf(radians)));
+    }
+}
 
 static lv_obj_t *make_power_arc(lv_obj_t *parent, uint16_t rotation, uint32_t accent)
 {
@@ -50,14 +111,16 @@ static void refresh_power(lv_timer_t *timer)
     uint8_t level = 0;
     bool external = false;
     if (!stopwatch_board_power_status(&level, &external)) {
-        lv_label_set_text(s_supply_label, "POWER --");
-        lv_label_set_text(s_battery_label, "BAT --");
+        set_power_text(&s_supply_text, "POWER --");
+        set_power_text(&s_battery_text, "BAT --");
         lv_arc_set_value(s_supply_arc, 0);
         lv_arc_set_value(s_battery_arc, 0);
         return;
     }
-    lv_label_set_text(s_supply_label, external ? "USB 5V" : "BAT PWR");
-    lv_label_set_text_fmt(s_battery_label, "BAT %u%%", level);
+    set_power_text(&s_supply_text, external ? "EXT 5V" : "BAT PWR");
+    char battery_text[POWER_TEXT_MAX + 1];
+    lv_snprintf(battery_text, sizeof(battery_text), "BAT %u%%", level > 100 ? 100 : level);
+    set_power_text(&s_battery_text, battery_text);
     lv_arc_set_value(s_supply_arc, external ? 100 : 0);
     lv_arc_set_value(s_battery_arc, level);
 }
@@ -70,7 +133,10 @@ static void on_info_delete(lv_event_t *e)
         s_power_timer = NULL;
     }
     s_supply_arc = s_battery_arc = NULL;
-    s_supply_label = s_battery_label = NULL;
+    memset(&s_supply_text, 0, sizeof(s_supply_text));
+    memset(&s_battery_text, 0, sizeof(s_battery_text));
+    ui_LabelEasterEggInfo = NULL;
+    ui_ScreenPageEasterEgg = NULL;
 }
 static void on_info_screen_state(lv_event_t *e)
 {
@@ -95,11 +161,13 @@ void ui_ScreenPageEasterEgg_screen_init(void)
 
     /* ---- Device Info Page ----
        Kept minimal on purpose: role + OBD link state + firmware build tag.
-       Layout on the 360x360 round panel: title y=88..124, info block centered,
-       OTA button y=288..320. */
+       Layout: title near the top, info block centered. */
     lv_obj_t *label_title = lv_label_create(ui_ScreenPageEasterEgg);
-    lv_label_set_text(label_title, "SKY GAUGE");
-    lv_obj_set_style_text_font(label_title, &ui_font_FontTypoderSize36, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_label_set_text(label_title, OBD_PROJECT_NAME);
+    const lv_font_t *title_font = &ui_font_FontTypoderSize36;
+    if (lv_txt_get_width(OBD_PROJECT_NAME, strlen(OBD_PROJECT_NAME), title_font, 0, LV_TEXT_FLAG_NONE) > 348)
+        title_font = &ui_font_FontTypoderSize24;
+    lv_obj_set_style_text_font(label_title, title_font, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_color(label_title, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_align(label_title, LV_ALIGN_TOP_MID, 0, 88);
 
@@ -113,7 +181,7 @@ void ui_ScreenPageEasterEgg_screen_init(void)
         bool linked = espnow_link_slave_has_data();
         const char *mname = espnow_link_get_master_name();
         conn_label  = "SLAVE";
-        conn_name   = (linked && mname[0]) ? mname : "--";
+        conn_name   = (linked && mname[0]) ? obd_project_display_master_name(mname) : "--";
         conn_status = linked ? "Linked" : "Waiting";
     } else {
         const char *ble_name = elm327_ble_get_connected_name();
@@ -125,12 +193,12 @@ void ui_ScreenPageEasterEgg_screen_init(void)
 
     ui_LabelEasterEggInfo = lv_label_create(ui_ScreenPageEasterEgg);
     lv_label_set_long_mode(ui_LabelEasterEggInfo, LV_LABEL_LONG_WRAP);
-    lv_obj_set_width(ui_LabelEasterEggInfo, 280);
+    lv_obj_set_width(ui_LabelEasterEggInfo, 340);
     lv_label_set_text_fmt(ui_LabelEasterEggInfo,
         "MODE: %s\n"
         "%s: %s\n"
         "Status: %s\n"
-        "BUILD %s",
+        "BUILD %s\n" OBD_PROJECT_CREDITS,
         mode_str, conn_label, conn_name, conn_status, OBD_GAUGE_BUILD_TAG);
     lv_obj_set_style_text_font(ui_LabelEasterEggInfo, &ui_font_FontTypoderSize16, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_color(ui_LabelEasterEggInfo, lv_color_hex(0xAAAAAA), LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -138,21 +206,12 @@ void ui_ScreenPageEasterEgg_screen_init(void)
     lv_obj_set_style_text_line_space(ui_LabelEasterEggInfo, 2, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_align(ui_LabelEasterEggInfo, LV_ALIGN_CENTER, 0, 0);
 
-    // ---- OTA button (the BUILD tag already lives in the info block above) ----
+#if !CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    // Legacy boards keep this entry; StopWatch uses Settings > More > Firmware / OTA.
     lv_obj_t *btn_ota = lv_btn_create(ui_ScreenPageEasterEgg);
     lv_obj_set_style_clip_corner(btn_ota, true, 0);
-#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
-    lv_obj_set_size(btn_ota, 154, 44);
-#else
     lv_obj_set_size(btn_ota, 140, 32);
-#endif
-    lv_obj_align(btn_ota, LV_ALIGN_BOTTOM_MID, 0,
-#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
-                 -100
-#else
-                 -56
-#endif
-                 );
+    lv_obj_align(btn_ota, LV_ALIGN_BOTTOM_MID, 0, -56);
     lv_obj_set_style_bg_color(btn_ota, lv_color_hex(0x00AA55), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_opa(btn_ota, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_radius(btn_ota, 16, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -163,20 +222,13 @@ void ui_ScreenPageEasterEgg_screen_init(void)
     lv_obj_set_style_text_color(lbl_ota, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_center(lbl_ota);
     lv_obj_add_event_cb(btn_ota, ui_event_easter_egg_ota_button, LV_EVENT_CLICKED, NULL);
+#endif
 
 #if CONFIG_OBD_HW_VERSION_M5STOPWATCH
     s_supply_arc = make_power_arc(ui_ScreenPageEasterEgg, 98, 0x2CE18C);
     s_battery_arc = make_power_arc(ui_ScreenPageEasterEgg, 60, 0x58C8FF);
-    s_supply_label = lv_label_create(ui_ScreenPageEasterEgg);
-    lv_label_set_text(s_supply_label, "POWER --");
-    lv_obj_set_style_text_font(s_supply_label, &ui_font_FontTypoderSize16, LV_PART_MAIN);
-    lv_obj_set_style_text_color(s_supply_label, lv_color_hex(0xEAF9F1), LV_PART_MAIN);
-    lv_obj_align(s_supply_label, LV_ALIGN_CENTER, -77, 156);
-    s_battery_label = lv_label_create(ui_ScreenPageEasterEgg);
-    lv_label_set_text(s_battery_label, "BAT --");
-    lv_obj_set_style_text_font(s_battery_label, &ui_font_FontTypoderSize16, LV_PART_MAIN);
-    lv_obj_set_style_text_color(s_battery_label, lv_color_hex(0xE7F6FD), LV_PART_MAIN);
-    lv_obj_align(s_battery_label, LV_ALIGN_CENTER, 77, 156);
+    s_supply_text = (power_arc_text_t){.center_angle=138.f, .color=0xEAF9F1};
+    s_battery_text = (power_arc_text_t){.center_angle=42.f, .color=0xE7F6FD};
     refresh_power(NULL);
     s_power_timer = lv_timer_create(refresh_power, 2000, NULL);
     lv_obj_add_event_cb(ui_ScreenPageEasterEgg, on_info_delete, LV_EVENT_DELETE, NULL);

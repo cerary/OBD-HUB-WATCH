@@ -79,11 +79,9 @@ void ui_ScreenPageFeedback_screen_init(void)
     lv_obj_set_style_text_color(note,lv_color_hex(0x898991),LV_PART_MAIN);
     lv_obj_set_style_text_align(note,LV_TEXT_ALIGN_CENTER,LV_PART_MAIN);
     lv_obj_align(note,LV_ALIGN_CENTER,0,104);
-    lv_obj_t *hint=lv_label_create(ui_ScreenPageFeedback);
-    lv_label_set_text(hint,"Swipe down to return");
-    lv_obj_set_style_text_font(hint,&ui_font_FontTypoderSize16,LV_PART_MAIN);
-    lv_obj_set_style_text_color(hint,lv_color_hex(0x686870),LV_PART_MAIN);
-    lv_obj_align(hint,LV_ALIGN_CENTER,0,164);
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    ui_settings_add_back_button(ui_ScreenPageFeedback,166);
+#endif
     lv_obj_move_foreground(ring);
     lv_obj_add_event_cb(ui_ScreenPageFeedback,ui_event_feedback_background,LV_EVENT_GESTURE,NULL);
     lv_obj_add_event_cb(ui_ScreenPageFeedback,feedback_delete,LV_EVENT_DELETE,NULL);

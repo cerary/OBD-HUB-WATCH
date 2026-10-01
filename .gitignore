@@ -14,3 +14,18 @@ pid_can_summary.csv
 tools/probe_log
 tools/elm_pids
 tools/pids_full.csv
+
+# OBD HUB WATCH local builds and previews
+build-*/
+.cache/
+*.ppm
+*.log
+# Device backups, local flash identity and personal logs
+*-backup.bin
+before-*.bin
+after-*.bin
+flash-manifest.json
+# Keep only documented current StopWatch application binaries in Git
+firmware/**/*.bin
+!firmware/stopwatch/OBD-HUB-WATCH-v1.0-20261002-app.bin
+bootmedia.bin

@@ -96,6 +96,18 @@ void elm327_ble_resume_after_ota(void);
 // Get the currently connected / target device name.
 const char *elm327_ble_get_connected_name(void);
 
+// CX configuration runs on the existing poll task, never concurrently with PIDs.
+bool elm327_ble_cx_enabled(void);
+bool elm327_ble_cx_set_enabled(bool enabled);
+const char *elm327_ble_cx_status(void);
+bool elm327_ble_cx_is_waiting(void);
+// Distinct from QUIET: true only after LP ALERT or the configured idle fallback.
+bool elm327_ble_cx_is_asleep(void);
+// Supply present means USB OR StopWatch v1.0 rear 5V; false must be verified.
+bool elm327_ble_cx_power_shutdown_due(bool present);
+void elm327_ble_cx_manual_resume(void);
+void elm327_ble_cx_read_config(void);
+
 // ---- Oil temperature calibration API ----
 // Set the oil-temp offset (calibration compensation), in °C.
 // Example: actual oil temp is 90°C but the reading shows 92°C -> set offset = -2.

@@ -1,6 +1,7 @@
 #pragma once
 #include <stdint.h>
 #include <stdbool.h>
+#include "app_obd_dsp/status_ring_policy.h"
 #include "esp_err.h"
 
 // Theme config. The index/selectors are real now (see ui_theme.c); the two
@@ -64,6 +65,10 @@ esp_err_t nvs_storage_init(void);
 /* User config accessors */
 const nvs_user_cfg_t * nvs_cfg_get(void);
 esp_err_t nvs_cfg_set(const nvs_user_cfg_t *cfg);
+
+// Separate blob: preserves the existing user/vehicle/CX configuration layout.
+const status_ring_config_t *nvs_status_ring_get(void);
+esp_err_t nvs_status_ring_set(const status_ring_config_t *cfg);
 
 
 // Per-item alarm threshold for the chart page (raw units; value>=threshold alarms; 32767=off). item = disp_item_t value.

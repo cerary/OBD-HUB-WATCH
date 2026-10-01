@@ -21,6 +21,7 @@ static int8_t   s_gear = 127;
 static int16_t  s_afr_x100 = -1;
 static brake_rs485_status_t s_brake_rs485_status = BRAKE_RS485_IDLE;
 static portMUX_TYPE s_mux = portMUX_INITIALIZER_UNLOCKED;
+static int64_t s_sample_us[OBD_SAMPLE_COUNT];
 
 #define SPEED_SMOOTH_TIME_MS 300   // speed ramp-up/down time constant (ms); the UI side already has anim_step, keep this small
 #define FALL_TO_ZERO_MS      500   // fall-to-zero ramp-down time constant (ms)
@@ -41,6 +42,7 @@ void obd_data_rpm_override_set(bool en, uint16_t val)
     portENTER_CRITICAL(&s_mux);
     s_rpm_override_en = en;
     s_rpm_override_val = val;
+    if (en) s_sample_us[OBD_SAMPLE_RPM] = esp_timer_get_time();
     portEXIT_CRITICAL(&s_mux);
 }
 
@@ -48,6 +50,7 @@ void obd_data_set_rpm(uint16_t rpm)
 {
     portENTER_CRITICAL(&s_mux);
     s_rpm_smooth = rpm;  // CAN 100Hz data is already clean, no smoothing needed
+    s_sample_us[OBD_SAMPLE_RPM] = esp_timer_get_time();
     portEXIT_CRITICAL(&s_mux);
 }
 
@@ -70,18 +73,19 @@ void obd_data_set_oil_temp_invalid(void)
 void obd_data_set_speed(uint8_t kmh)
 {
     TickType_t now_tick = xTaskGetTickCount();
+    portENTER_CRITICAL(&s_mux);
     uint32_t dt_ms = (now_tick - s_speed_last_tick) * portTICK_PERIOD_MS;
     if (dt_ms > 1000) dt_ms = 1000;
     s_speed_last_tick = now_tick;
 
     uint32_t tc = (kmh == 0) ? FALL_TO_ZERO_MS : SPEED_SMOOTH_TIME_MS;
-    float alpha = (float)dt_ms / (float)tc;
+    float alpha = s_sample_us[OBD_SAMPLE_SPEED] == 0 ? 1.0f : (float)dt_ms / (float)tc;
     if (alpha > 1.0f) alpha = 1.0f;
     s_speed_smooth_f += alpha * ((float)kmh - s_speed_smooth_f);
 
     uint8_t smoothed = (uint8_t)(s_speed_smooth_f + 0.5f);
-    portENTER_CRITICAL(&s_mux);
     s_speed_smooth = smoothed;
+    s_sample_us[OBD_SAMPLE_SPEED] = esp_timer_get_time();
     portEXIT_CRITICAL(&s_mux);
 }
 
@@ -89,6 +93,7 @@ void obd_data_set_coolant_temp(int16_t temp)
 {
     portENTER_CRITICAL(&s_mux);
     s_coolant_temp = temp;
+    s_sample_us[OBD_SAMPLE_CLT] = esp_timer_get_time();
     portEXIT_CRITICAL(&s_mux);
 }
 
@@ -97,6 +102,7 @@ void obd_data_set_oil_temp(int16_t temp)
     if (temp < -20 || temp > 150) return;
     portENTER_CRITICAL(&s_mux);
     s_oil_temp = temp;
+    s_sample_us[OBD_SAMPLE_OIL] = esp_timer_get_time();
     portEXIT_CRITICAL(&s_mux);
 }
 
@@ -104,6 +110,7 @@ void obd_data_set_intake_temp(int16_t temp)
 {
     portENTER_CRITICAL(&s_mux);
     s_intake_temp = temp;
+    s_sample_us[OBD_SAMPLE_IAT] = esp_timer_get_time();
     portEXIT_CRITICAL(&s_mux);
 }
 
@@ -156,6 +163,7 @@ void obd_data_set_load_pct(int16_t pct)
 {
     portENTER_CRITICAL(&s_mux);
     s_load_pct = pct;
+    s_sample_us[OBD_SAMPLE_LOAD] = esp_timer_get_time();
     portEXIT_CRITICAL(&s_mux);
 }
 
@@ -172,6 +180,7 @@ void obd_data_set_tps(int16_t pct)
 {
     portENTER_CRITICAL(&s_mux);
     s_tps = pct;
+    s_sample_us[OBD_SAMPLE_TPS] = esp_timer_get_time();
     portEXIT_CRITICAL(&s_mux);
 }
 
@@ -188,6 +197,7 @@ void obd_data_set_bat_mv(int32_t mv)
 {
     portENTER_CRITICAL(&s_mux);
     s_bat_mv = mv;
+    s_sample_us[OBD_SAMPLE_BAT] = esp_timer_get_time();
     portEXIT_CRITICAL(&s_mux);
 }
 
@@ -205,6 +215,7 @@ void obd_data_set_oil_pressure_x10(int16_t pressure_x10)
     if (pressure_x10 < 0 || pressure_x10 > 200) return;
     portENTER_CRITICAL(&s_mux);
     s_oil_pressure_x10 = pressure_x10;
+    s_sample_us[OBD_SAMPLE_OILP] = esp_timer_get_time();
     portEXIT_CRITICAL(&s_mux);
 }
 
@@ -222,6 +233,7 @@ void obd_data_set_boost_x10(int16_t boost_x10)
     if (boost_x10 < -15 || boost_x10 > 300) return;
     portENTER_CRITICAL(&s_mux);
     s_boost_x10 = boost_x10;
+    s_sample_us[OBD_SAMPLE_BOOST] = esp_timer_get_time();
     portEXIT_CRITICAL(&s_mux);
 }
 
@@ -239,6 +251,7 @@ void obd_data_set_brake_temp_x10(int16_t temp_x10)
     if (temp_x10 < -500 || temp_x10 > 12000) return;
     portENTER_CRITICAL(&s_mux);
     s_brake_temp_x10 = temp_x10;
+    s_sample_us[OBD_SAMPLE_BKT] = esp_timer_get_time();
     portEXIT_CRITICAL(&s_mux);
 }
 
@@ -279,6 +292,7 @@ void obd_data_set_afr_x100(int16_t afr_x100)
     if (afr_x100 < 800 || afr_x100 > 2200) return;
     portENTER_CRITICAL(&s_mux);
     s_afr_x100 = afr_x100;
+    s_sample_us[OBD_SAMPLE_AFR] = esp_timer_get_time();
     portEXIT_CRITICAL(&s_mux);
 }
 
@@ -291,11 +305,8 @@ int16_t obd_data_get_afr_x100(void)
     return val;
 }
 
-void obd_data_get_snapshot(obd_data_snapshot_t *out)
+static void copy_snapshot_locked(obd_data_snapshot_t *out)
 {
-    if (!out) return;
-
-    portENTER_CRITICAL(&s_mux);
     out->rpm = s_rpm_override_en ? s_rpm_override_val : s_rpm_smooth;
     out->speed = s_speed_smooth;
     out->coolant_temp = s_coolant_temp;
@@ -310,7 +321,79 @@ void obd_data_get_snapshot(obd_data_snapshot_t *out)
     out->gear = s_gear;
     out->afr_x100 = s_afr_x100;
     out->brake_rs485_status = s_brake_rs485_status;
+}
+
+void obd_data_get_snapshot(obd_data_snapshot_t *out)
+{
+    if (!out) return;
+    portENTER_CRITICAL(&s_mux);
+    copy_snapshot_locked(out);
     portEXIT_CRITICAL(&s_mux);
+}
+
+void obd_data_get_fresh_snapshot(obd_data_snapshot_t *out, obd_data_freshness_t *freshness)
+{
+    if (!out || !freshness) return;
+    portENTER_CRITICAL(&s_mux);
+    copy_snapshot_locked(out);
+    const int64_t now = esp_timer_get_time();
+    for (unsigned i = 0; i < OBD_SAMPLE_COUNT; ++i) {
+        uint64_t age = s_sample_us[i] > 0 ? (uint64_t)(now - s_sample_us[i]) / 1000 : UINT32_MAX;
+        freshness->age_ms[i] = age >= UINT32_MAX ? UINT32_MAX : (uint32_t)age;
+    }
+    portEXIT_CRITICAL(&s_mux);
+}
+
+void obd_data_invalidate_freshness(void)
+{
+    portENTER_CRITICAL(&s_mux);
+    for (unsigned i = 0; i < OBD_SAMPLE_COUNT; ++i) s_sample_us[i] = 0;
+    s_rpm_smooth = 0;
+    s_speed_smooth = 0;
+    s_speed_smooth_f = 0.f;
+    s_speed_last_tick = 0;
+    s_rpm_override_en = false;
+    s_rpm_override_val = 0;
+    s_coolant_temp = s_intake_temp = -40;
+    s_oil_temp = -100;
+    s_load_pct = s_tps = s_oil_pressure_x10 = s_afr_x100 = -1;
+    s_bat_mv = -1;
+    s_boost_x10 = -32768;
+    s_brake_temp_x10 = -1000;
+    s_gear = 127;
+    s_brake_rs485_status = BRAKE_RS485_IDLE;
+    portEXIT_CRITICAL(&s_mux);
+}
+
+bool obd_data_sample_is_fresh(const obd_data_freshness_t *f, obd_sample_channel_t channel)
+{
+    if (!f || (unsigned)channel >= OBD_SAMPLE_COUNT) return false;
+    uint32_t limit = (channel == OBD_SAMPLE_CLT || channel == OBD_SAMPLE_IAT ||
+                      channel == OBD_SAMPLE_OIL || channel == OBD_SAMPLE_BAT ||
+                      channel == OBD_SAMPLE_BKT) ? 15000 : 5000;
+    return f->age_ms[channel] <= limit;
+}
+
+void obd_data_apply_freshness(obd_data_snapshot_t *out, const obd_data_freshness_t *f)
+{
+    if (!out || !f) return;
+#define EXPIRE(channel, field, invalid) \
+    if (!obd_data_sample_is_fresh(f, channel)) out->field = invalid
+    EXPIRE(OBD_SAMPLE_RPM, rpm, 0);
+    EXPIRE(OBD_SAMPLE_SPEED, speed, 0);
+    EXPIRE(OBD_SAMPLE_CLT, coolant_temp, -40);
+    EXPIRE(OBD_SAMPLE_IAT, intake_temp, -40);
+    EXPIRE(OBD_SAMPLE_OIL, oil_temp, -100);
+    EXPIRE(OBD_SAMPLE_LOAD, load_pct, -1);
+    EXPIRE(OBD_SAMPLE_TPS, tps, -1);
+    EXPIRE(OBD_SAMPLE_BAT, bat_mv, -1);
+    EXPIRE(OBD_SAMPLE_OILP, oil_pressure_x10, -1);
+    EXPIRE(OBD_SAMPLE_BKT, brake_temp_x10, -1000);
+    EXPIRE(OBD_SAMPLE_BOOST, boost_x10, -32768);
+    EXPIRE(OBD_SAMPLE_AFR, afr_x100, -1);
+#undef EXPIRE
+    if (!obd_data_sample_is_fresh(f, OBD_SAMPLE_RPM) ||
+        !obd_data_sample_is_fresh(f, OBD_SAMPLE_SPEED)) out->gear = 127;
 }
 
 /**
@@ -365,8 +448,10 @@ static void mileage_timer_cb(void* arg)
 {
     (void)arg;
     obd_data_snapshot_t snap;
-    obd_data_get_snapshot(&snap);
-    nvs_stat_update_speed(snap.speed, 1000);
+    obd_data_freshness_t freshness;
+    obd_data_get_fresh_snapshot(&snap, &freshness);
+    if (obd_data_sample_is_fresh(&freshness, OBD_SAMPLE_SPEED))
+        nvs_stat_update_speed(snap.speed, 1000);
 }
 
 /**

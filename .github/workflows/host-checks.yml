@@ -1,0 +1,13 @@
+name: Host checks
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  host-regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test production policies, cache and NVS
+        run: python3 tools/test_host.py

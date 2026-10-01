@@ -42,7 +42,7 @@ static void layout_saved_device(bool saved)
     }
     if (s_label_nearby) lv_obj_align(s_label_nearby, LV_ALIGN_TOP_MID, 0, saved ? 217 : 141);
     if (s_list) {
-        lv_obj_set_size(s_list, 300, saved ? 131 : 202);
+        lv_obj_set_size(s_list, 300, saved ? 125 : 194);
         lv_obj_align(s_list, LV_ALIGN_TOP_MID, 0, saved ? 238 : 166);
     }
 }
@@ -288,6 +288,20 @@ static void start_scan(void) {
     }
 }
 
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+void ui_ble_scan_stop(void)
+{
+    if (s_slave_mode) gauge_pair_ble_scan_stop();
+    else elm327_ble_scan_only_stop();
+    s_scanning = false;
+}
+static void scan_screen_event(lv_event_t *e)
+{
+    if (lv_event_get_code(e) == LV_EVENT_SCREEN_LOADED) start_scan();
+    else if (lv_event_get_code(e) == LV_EVENT_SCREEN_UNLOADED) ui_ble_scan_stop();
+}
+#endif
+
 void ui_ScreenPageBLEScan_screen_init(void)
 {
     s_slave_mode = (nvs_cfg_get()->device_role == ESPNOW_ROLE_SLAVE);
@@ -446,7 +460,7 @@ void ui_ScreenPageBLEScan_screen_init(void)
     // Device list (scan results)
     s_list = lv_list_create(ui_ScreenPageBLEScan);
 #if CONFIG_OBD_HW_VERSION_M5STOPWATCH
-    lv_obj_set_size(s_list, 300, has_saved ? 131 : 202);
+    lv_obj_set_size(s_list, 300, has_saved ? 125 : 194);
     lv_obj_align(s_list, LV_ALIGN_TOP_MID, 0, has_saved ? 238 : 166);
 #else
     lv_obj_set_size(s_list, 264, 145);
@@ -465,7 +479,7 @@ void ui_ScreenPageBLEScan_screen_init(void)
     // Hint text at bottom
     lv_obj_t *label_hint = lv_label_create(ui_ScreenPageBLEScan);
 #if CONFIG_OBD_HW_VERSION_M5STOPWATCH
-    lv_label_set_text(label_hint, "Tap device / hold X / swipe back");
+    lv_label_set_text(label_hint, "Tap device / hold X to remove");
 #else
     lv_label_set_text(label_hint, "Tap to connect  Slide to back");
 #endif
@@ -473,7 +487,7 @@ void ui_ScreenPageBLEScan_screen_init(void)
     lv_obj_set_style_text_color(label_hint, lv_color_hex(0x555555), LV_PART_MAIN);
     lv_obj_set_style_text_align(label_hint, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
 #if CONFIG_OBD_HW_VERSION_M5STOPWATCH
-    lv_obj_align(label_hint, LV_ALIGN_BOTTOM_MID, 0, -65);
+    lv_obj_align(label_hint, LV_ALIGN_BOTTOM_MID, 0, -85);
 #else
     lv_obj_align(label_hint, LV_ALIGN_BOTTOM_MID, 0, -15);
 #endif
@@ -482,7 +496,12 @@ void ui_ScreenPageBLEScan_screen_init(void)
     lv_obj_move_foreground(spinner_ring);   // bring the ring to the front
     lv_obj_add_event_cb(ui_ScreenPageBLEScan, ui_event_ble_scan_background, LV_EVENT_GESTURE, NULL);
 
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    ui_settings_add_back_button(ui_ScreenPageBLEScan,174);
+    lv_obj_add_event_cb(ui_ScreenPageBLEScan,scan_screen_event,LV_EVENT_ALL,NULL);
+#else
     // Start scanning
     start_scan();
+#endif
 }
 

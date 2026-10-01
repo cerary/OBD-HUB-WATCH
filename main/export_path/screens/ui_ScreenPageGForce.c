@@ -1,5 +1,6 @@
 // StopWatch inertial G meter. Screen coordinates and artwork follow the 466 px UI.
 #include "../ui.h"
+#include "../ui_status_ring.h"
 #include "bsp_obd_dsp/nvs_storage.h"
 #include <math.h>
 #include <stdio.h>
@@ -7,13 +8,24 @@
 #include <string.h>
 #if CONFIG_OBD_HW_VERSION_M5STOPWATCH
 #include "stopwatch/stopwatch_board.h"
+#include "esp_heap_caps.h"
 #endif
 
-#define G_GRID_HALF 9
-#define G_GRID_N 19
+#define G_GRID_HALF 10
+#define G_GRID_N (G_GRID_HALF * 2 + 1)
 #define G_GRID_STEP 17
-#define G_GRID_RADIUS 158
-#define G_DOT_LIMIT 158.0f
+#define G_GRID_RADIUS 175
+#define G_DOT_LIMIT 175.0f
+// Match the RPM track's 416 px outer diameter and 20 px radial band.
+#define G_DIAL_SIZE 416
+#define G_DIAL_BAND 20.f
+#define G_CORNER_LENGTH 10.f
+#define G_ARC_WIDTH 3
+#define G_ARC_RADIUS (G_DIAL_SIZE * 0.5f - G_ARC_WIDTH * 0.5f)
+#define G_TEXT_RADIUS (G_DIAL_SIZE * 0.5f - G_DIAL_BAND * 0.5f)
+#define G_PEAK_GLYPH_W 32
+#define G_PEAK_GLYPH_H 36
+#define G_PEAK_ZOOM 274 // 14 px font ink becomes approximately 15 px tall.
 #define G_SCALE 1.5f
 #define G_TRAIL_FADE_MS 10000U
 #define G_TRAIL_FADE_STEPS 32U
@@ -27,7 +39,7 @@ static uint16_t s_trail_cells[G_GRID_N * G_GRID_N];
 static uint16_t s_trail_count;
 static lv_obj_t *s_live_dot;
 static lv_obj_t *s_peak_chars[4][10];
-static void *s_peak_buffers[4][10];
+static char s_peak_text[4][16];
 static lv_obj_t *s_status;
 static lv_timer_t *s_update_timer;
 static lv_timer_t *s_cal_timer;
@@ -40,44 +52,100 @@ static float s_cal_sum[3];
 static int s_cal_samples, s_cal_attempts;
 // lv_line keeps a pointer to its points, so the corner coordinates must persist.
 static lv_point_t s_arc_corners[8][2];
+#if LV_DRAW_COMPLEX
+typedef struct {
+    lv_obj_t *arc;
+    lv_draw_mask_radius_param_t mask;
+    int16_t mask_id;
+} g_corner_clip_t;
+static g_corner_clip_t s_corner_clips[8];
+
+static void clip_corner_to_dial(lv_event_t *e)
+{
+    g_corner_clip_t *clip=lv_event_get_user_data(e);
+    if (lv_event_get_code(e)==LV_EVENT_DRAW_MAIN_BEGIN) {
+        lv_area_t area;
+        lv_obj_get_coords(clip->arc,&area);
+        // Use the exact circle footprint used by LVGL's arc renderer. Its
+        // even-sized bounds and the centered line stroke otherwise differ
+        // by fractional pixels at the join, producing an outward spur.
+        lv_draw_mask_radius_init(&clip->mask,&area,LV_RADIUS_CIRCLE,false);
+        clip->mask_id=lv_draw_mask_add(&clip->mask,NULL);
+    } else if (lv_event_get_code(e)==LV_EVENT_DRAW_MAIN_END) {
+        if (clip->mask_id!=LV_MASK_ID_INV) lv_draw_mask_remove_id(clip->mask_id);
+        lv_draw_mask_free_param(&clip->mask);
+        clip->mask_id=LV_MASK_ID_INV;
+    }
+}
+#endif
+
+static void free_peak_glyph(lv_event_t *e)
+{
+    free(lv_event_get_user_data(e));
+}
 
 static void draw_peak(int group)
 {
     char value[16];
     snprintf(value,sizeof(value),group==0 ? "%.2fg MAX" : "%.2f",s_max_g[group]);
+    if (!strcmp(value, s_peak_text[group])) return;
     const int count=(int)strlen(value);
     const float center_angle[4]={-90.f,0.f,90.f,180.f};
     const bool reverse=group==2;
+    const lv_font_t *font=&ui_font_FontTypoderSize20;
+    const float zoom=G_PEAK_ZOOM/256.f;
+    const float width=lv_txt_get_width(value,count,font,0,LV_TEXT_FLAG_NONE)*zoom;
+    float cursor=-width*0.5f;
+    bool complete=true;
     for (int i=0;i<10;++i) {
-        if (s_peak_chars[group][i]) { lv_obj_del(s_peak_chars[group][i]); s_peak_chars[group][i]=NULL; }
-        if (s_peak_buffers[group][i]) { free(s_peak_buffers[group][i]); s_peak_buffers[group][i]=NULL; }
-    }
-    for (int i=0;i<count && i<10;++i) {
-        if (value[i]==' ') continue;
-        const float offset=((float)i-(count-1)*0.5f)*12.f;
-        const float angle=center_angle[group]+(reverse ? -offset : offset)*180.f/(185.f*3.14159265f);
+        lv_obj_t *glyph=s_peak_chars[group][i];
+        if (i>=count) { if (glyph) lv_obj_add_flag(glyph,LV_OBJ_FLAG_HIDDEN); continue; }
+        uint32_t next=i+1<count ? (uint8_t)value[i+1] : 0;
+        float advance=lv_font_get_glyph_width(font,(uint8_t)value[i],next)*zoom;
+        float offset=cursor+advance*0.5f;
+        cursor+=advance;
+        if (value[i]==' ') { if (glyph) lv_obj_add_flag(glyph,LV_OBJ_FLAG_HIDDEN); continue; }
+        const float angle=center_angle[group]+(reverse ? -offset : offset)*180.f/(G_TEXT_RADIUS*3.14159265f);
         const float radians=angle*3.14159265f/180.f;
-        lv_obj_t *glyph=lv_canvas_create(ui_ScreenPageGForce);
-        void *buf=malloc(LV_CANVAS_BUF_SIZE_TRUE_COLOR_ALPHA(24,28));
-        if (!buf) { lv_obj_del(glyph); continue; }
-        s_peak_chars[group][i]=glyph;
-        s_peak_buffers[group][i]=buf;
-        lv_canvas_set_buffer(glyph,buf,24,28,LV_IMG_CF_TRUE_COLOR_ALPHA);
+        if (!glyph) {
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+            void *buf=heap_caps_malloc(LV_CANVAS_BUF_SIZE_TRUE_COLOR_ALPHA(G_PEAK_GLYPH_W,G_PEAK_GLYPH_H),
+                                      MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+#else
+            void *buf=malloc(LV_CANVAS_BUF_SIZE_TRUE_COLOR_ALPHA(G_PEAK_GLYPH_W,G_PEAK_GLYPH_H));
+#endif
+            if (!buf) { complete=false; continue; }
+            glyph=lv_canvas_create(ui_ScreenPageGForce);
+            s_peak_chars[group][i]=glyph;
+            lv_canvas_set_buffer(glyph,buf,G_PEAK_GLYPH_W,G_PEAK_GLYPH_H,LV_IMG_CF_TRUE_COLOR_ALPHA);
+            lv_obj_add_event_cb(glyph,free_peak_glyph,LV_EVENT_DELETE,buf);
+            lv_obj_clear_flag(glyph,LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+            lv_img_set_antialias(glyph,true);
+            lv_img_set_zoom(glyph,G_PEAK_ZOOM);
+        }
+        lv_obj_clear_flag(glyph,LV_OBJ_FLAG_HIDDEN);
         lv_canvas_fill_bg(glyph,lv_color_black(),LV_OPA_TRANSP);
         lv_draw_label_dsc_t dsc;
         lv_draw_label_dsc_init(&dsc);
-        dsc.font=&ui_font_FontTypoderSize16;
+        dsc.font=font;
         dsc.color=lv_color_hex(0xE5E2E7);
         dsc.align=LV_TEXT_ALIGN_CENTER;
         char letter[2]={value[i],0};
-        lv_canvas_draw_text(glyph,0,3,24,&dsc,letter);
+        // Center numeric ink in the RPM track's radial band; all characters
+        // share the digit baseline so decimal points keep their normal position.
+        lv_font_glyph_dsc_t metrics;
+        int text_y=(G_PEAK_GLYPH_H-font->line_height)/2;
+        if (lv_font_get_glyph_dsc(font,&metrics,'0',0))
+            text_y=(G_PEAK_GLYPH_H-metrics.box_h)/2 -
+                   (font->line_height-font->base_line-metrics.box_h-metrics.ofs_y);
+        lv_canvas_draw_text(glyph,0,text_y,G_PEAK_GLYPH_W,&dsc,letter);
         int tangent=(int)lroundf((angle+(reverse ? -90.f : 90.f))*10.f);
-        lv_img_set_angle(glyph,tangent);
+        lv_img_set_angle(glyph,(uint16_t)((tangent%3600+3600)%3600));
         lv_obj_align(glyph,LV_ALIGN_CENTER,
-                     (int)lroundf(185.f*cosf(radians)),
-                     (int)lroundf(185.f*sinf(radians)));
-        lv_obj_clear_flag(glyph,LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+                     (int)lroundf(G_TEXT_RADIUS*cosf(radians)),
+                     (int)lroundf(G_TEXT_RADIUS*sinf(radians)));
     }
+    if (complete) snprintf(s_peak_text[group],sizeof(s_peak_text[group]),"%s",value);
 }
 
 static float dot3(const float a[3], const float b[3])
@@ -107,13 +175,15 @@ static lv_obj_t *g_label(lv_obj_t *parent, const char *text, int x, int y,
 static void g_arc(lv_obj_t *parent, int rotation, int span, int quadrant)
 {
     lv_obj_t *arc = lv_arc_create(parent);
-    lv_obj_set_size(arc, 370, 370);
+    lv_obj_set_size(arc, G_DIAL_SIZE, G_DIAL_SIZE);
     lv_obj_center(arc);
     lv_arc_set_range(arc, 0, 100);
     lv_arc_set_bg_angles(arc, 0, span);
     lv_arc_set_rotation(arc, rotation);
     lv_arc_set_value(arc, 0);
-    lv_obj_set_style_arc_width(arc, 3, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(arc, 0, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(arc, G_ARC_WIDTH, LV_PART_MAIN);
+    lv_obj_set_style_arc_rounded(arc, false, LV_PART_MAIN);
     lv_obj_set_style_arc_color(arc, lv_color_hex(0xD9D6DD), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(arc, LV_OPA_TRANSP, LV_PART_KNOB);
     lv_obj_clear_flag(arc, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
@@ -124,10 +194,10 @@ static void g_arc(lv_obj_t *parent, int rotation, int span, int quadrant)
     const int ends[2] = {rotation, rotation + span};
     for (int end = 0; end < 2; ++end) {
         float angle = ends[end] * 3.14159265f / 180.f;
-        int outer_x = (int)lroundf(184.f * cosf(angle));
-        int outer_y = (int)lroundf(184.f * sinf(angle));
-        int inner_x = (int)lroundf(176.f * cosf(angle));
-        int inner_y = (int)lroundf(176.f * sinf(angle));
+        int outer_x = (int)lroundf(G_ARC_RADIUS * cosf(angle));
+        int outer_y = (int)lroundf(G_ARC_RADIUS * sinf(angle));
+        int inner_x = (int)lroundf((G_ARC_RADIUS-G_CORNER_LENGTH) * cosf(angle));
+        int inner_y = (int)lroundf((G_ARC_RADIUS-G_CORNER_LENGTH) * sinf(angle));
         int min_x = outer_x < inner_x ? outer_x : inner_x;
         int min_y = outer_y < inner_y ? outer_y : inner_y;
         lv_point_t *points = s_arc_corners[quadrant * 2 + end];
@@ -135,11 +205,19 @@ static void g_arc(lv_obj_t *parent, int rotation, int span, int quadrant)
         points[1] = (lv_point_t){inner_x - min_x, inner_y - min_y};
         lv_obj_t *corner = lv_line_create(parent);
         lv_line_set_points(corner, points, 2);
-        lv_obj_set_style_line_width(corner, 3, LV_PART_MAIN);
+        lv_obj_set_style_line_width(corner, G_ARC_WIDTH, LV_PART_MAIN);
+        lv_obj_set_style_line_rounded(corner, false, LV_PART_MAIN);
         lv_obj_set_style_line_color(corner, lv_color_hex(0xD9D6DD), LV_PART_MAIN);
         lv_obj_set_style_line_opa(corner, LV_OPA_COVER, LV_PART_MAIN);
         lv_obj_set_pos(corner, LV_HOR_RES / 2 + min_x, LV_VER_RES / 2 + min_y);
         lv_obj_clear_flag(corner, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+#if LV_DRAW_COMPLEX
+        g_corner_clip_t *clip=&s_corner_clips[quadrant*2+end];
+        clip->arc=arc;
+        clip->mask_id=LV_MASK_ID_INV;
+        lv_obj_add_event_cb(corner,clip_corner_to_dial,LV_EVENT_DRAW_MAIN_BEGIN,clip);
+        lv_obj_add_event_cb(corner,clip_corner_to_dial,LV_EVENT_DRAW_MAIN_END,clip);
+#endif
     }
 }
 
@@ -200,10 +278,14 @@ static void update_g_meter(lv_timer_t *timer)
     fade_trail(now_ms);
     const nvs_user_cfg_t *cfg = nvs_cfg_get();
     float x, y, z;
-    if (!cfg->g_cal_valid || !stopwatch_board_imu_read(&x, &y, &z)) return;
+    if (!cfg->g_cal_valid || !stopwatch_board_imu_read(&x, &y, &z)) {
+        ui_status_ring_set_g_sample(0.f, false);
+        return;
+    }
     float motion[3] = {x-cfg->g_zero[0], y-cfg->g_zero[1], z-cfg->g_zero[2]};
     float right = dot3(motion, cfg->g_axis_right);
     float forward = dot3(motion, cfg->g_axis_forward);
+    ui_status_ring_set_g_sample(sqrtf(right*right + forward*forward), true);
     // An accelerometer shows inertial displacement opposite vehicle acceleration.
     float tx = -right * G_DOT_LIMIT / G_SCALE;
     float ty = forward * G_DOT_LIMIT / G_SCALE;
@@ -241,10 +323,9 @@ static void g_page_delete(lv_event_t *e)
     memset(s_grid, 0, sizeof(s_grid));
     s_live_dot = NULL;
     s_status = NULL;
-    for (int i=0;i<4;++i) for (int j=0;j<10;++j) {
-        if (s_peak_buffers[i][j]) { free(s_peak_buffers[i][j]); s_peak_buffers[i][j]=NULL; }
-        s_peak_chars[i][j]=NULL;
-    }
+    memset(s_peak_chars,0,sizeof(s_peak_chars));
+    memset(s_peak_text,0,sizeof(s_peak_text));
+    ui_ScreenPageGForce=NULL;
 }
 
 static void g_screen_state(lv_event_t *e)
@@ -265,10 +346,10 @@ void ui_ScreenPageGForce_screen_init(void)
 #if CONFIG_OBD_HW_VERSION_M5STOPWATCH
     // Mirror each pair across the vertical axis. The longer top label gets a
     // wider gap, while the side and bottom gaps preserve similar text clearance.
-    g_arc(ui_ScreenPageGForce, 296, 52, 0);   // upper right: 296..348
-    g_arc(ui_ScreenPageGForce, 12, 64, 1);    // lower right: 12..76
-    g_arc(ui_ScreenPageGForce, 104, 64, 2);   // lower left: 104..168
-    g_arc(ui_ScreenPageGForce, 192, 52, 3);   // upper left: 192..244
+    g_arc(ui_ScreenPageGForce, 306, 38, 0);   // upper right: 306..344
+    g_arc(ui_ScreenPageGForce, 16, 58, 1);    // lower right: 16..74
+    g_arc(ui_ScreenPageGForce, 106, 58, 2);   // lower left: 106..164
+    g_arc(ui_ScreenPageGForce, 196, 38, 3);   // upper left: 196..234
     for (int gy=-G_GRID_HALF; gy<=G_GRID_HALF; ++gy) {
         for (int gx=-G_GRID_HALF; gx<=G_GRID_HALF; ++gx) {
             int px=gx*G_GRID_STEP, py=gy*G_GRID_STEP;
@@ -305,7 +386,9 @@ void ui_ScreenPageGForce_screen_init(void)
     lv_obj_center(s_live_dot);
     lv_obj_clear_flag(s_live_dot, LV_OBJ_FLAG_CLICKABLE);
     for (int i=0;i<4;++i) draw_peak(i);
-    ui_helpers_create_mini_brand(ui_ScreenPageGForce, -132, false);
+    ui_helpers_create_mini_brand(ui_ScreenPageGForce, -149, false);
+    // Keep the live reading visible when it crosses the decorative logo.
+    lv_obj_move_foreground(s_live_dot);
     bool imu_ok=stopwatch_board_imu_init();
     if (!imu_ok || !nvs_cfg_get()->g_cal_valid)
         s_status=g_label(ui_ScreenPageGForce,imu_ok ? "SWIPE DOWN TO CALIBRATE" : "IMU UNAVAILABLE",
@@ -442,9 +525,16 @@ void ui_ScreenPageGForceCal_screen_init(void)
     lv_obj_clear_flag(s_cal_roller,LV_OBJ_FLAG_GESTURE_BUBBLE);
     g_label(ui_ScreenPageGForceCal,"Park on level ground",0,-13,&ui_font_FontTypoderSize16,0xB3AFB7);
     g_label(ui_ScreenPageGForceCal,"Keep the car still",0,10,&ui_font_FontTypoderSize16,0xB3AFB7);
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    g_button(ui_ScreenPageGForceCal,"SET ZERO",0,73,start_cal);
+    g_button(ui_ScreenPageGForceCal,"CLEAR MAX",0,129,clear_g_history);
+    ui_settings_add_back_button(ui_ScreenPageGForceCal,180);
+    s_cal_status=g_label(ui_ScreenPageGForceCal,"READY",0,35,
+#else
     g_button(ui_ScreenPageGForceCal,"SET ZERO",0,63,start_cal);
     g_button(ui_ScreenPageGForceCal,"CLEAR MAX",0,119,clear_g_history);
     s_cal_status=g_label(ui_ScreenPageGForceCal,"SWIPE UP TO RETURN",0,163,
+#endif
                          &ui_font_FontTypoderSize16,0x8F8A94);
     lv_obj_move_foreground(ring);
     lv_obj_add_event_cb(ui_ScreenPageGForceCal,ui_event_gforce_cal_background,LV_EVENT_GESTURE,NULL);

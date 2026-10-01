@@ -4,6 +4,7 @@
 // Project name: OBD_PRJ
 
 #include "../ui.h"
+#include "../ui_peak_marker.h"
 
 void ui_ScreenPageRpm_screen_init(void)
 {
@@ -22,7 +23,8 @@ void ui_ScreenPageRpm_screen_init(void)
 
     ui_RpmPageArcRpmBack = lv_arc_create(ui_ScreenPageRpm);
 #if CONFIG_OBD_HW_VERSION_M5STOPWATCH
-    lv_obj_set_size(ui_RpmPageArcRpmBack, 414, 414);
+    // 5 px screen margin + 10 px outer ring + 10 px gap to this arc.
+    lv_obj_set_size(ui_RpmPageArcRpmBack, 416, 416);
 #else
     lv_obj_set_size(ui_RpmPageArcRpmBack, 340, 340);
 #endif
@@ -74,7 +76,8 @@ void ui_ScreenPageRpm_screen_init(void)
     lv_obj_set_style_text_color(ui_RpmPageArcLabelRpmText, ui_theme_color_lv(UI_COLOR_TEXT_PRIMARY), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_opa(ui_RpmPageArcLabelRpmText, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
 #if CONFIG_OBD_HW_VERSION_M5STOPWATCH
-    lv_obj_set_style_text_font(ui_RpmPageArcLabelRpmText, &ui_font_FontTypoderSize140, LV_PART_MAIN | LV_STATE_DEFAULT);
+    // Keep the full RPM readout inside the progress arc, including five digits.
+    lv_obj_set_style_text_font(ui_RpmPageArcLabelRpmText, &ui_font_FontTypoderSize90, LV_PART_MAIN | LV_STATE_DEFAULT);
 #else
     lv_obj_set_style_text_font(ui_RpmPageArcLabelRpmText, &ui_font_FontTypoderSize56, LV_PART_MAIN | LV_STATE_DEFAULT);
 #endif
@@ -114,6 +117,9 @@ void ui_ScreenPageRpm_screen_init(void)
     lv_obj_clear_flag(ui_ImageRpmBlackEar, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
 
     lv_obj_add_event_cb(ui_RpmPageArcRpmBack, ui_event_rpm_background, LV_EVENT_ALL, NULL);
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    ui_peak_marker_register(ui_RpmPageArcRpmBack, UI_PEAK_RPM, 8000);
+#endif
     lv_obj_move_foreground(ui_SpinnerRpmPage);   // bring the ring to the front
     lv_obj_add_event_cb(ui_ScreenPageRpm, ui_event_rpm_background, LV_EVENT_GESTURE, NULL);
 
