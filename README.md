@@ -46,6 +46,8 @@
 
 设备状态页也显示：`Based on SKYGAUGE` / `Modified & optimized by T A O`。
 
+已向上游提交：[AFR 选择重启丢失及默认报警阈值错误 #16](https://github.com/steveEcode/obd_brz_gauge/issues/16)，附原代码复现结果与脚本。
+
 ## 我们的改进
 
 - **StopWatch 硬件移植：**屏幕、触摸、PMIC、双按键、BMI270、反馈；独立模式不启动 Wi-Fi / ESP-NOW；修复依赖头文件 ABI 不一致与 AMOLED DMA 分配失败路径。
@@ -116,6 +118,8 @@ idf.py -B build-stopwatch '-DSDKCONFIG=sdkconfig.stopwatch' -p COMx flash monito
 [固件目录](firmware/README.md)记录当前已刷镜像与 SHA-256。它是应用包，不能拿来替代一块空白设备的完整首刷。当前版本不支持将 V1.0 固件直接视为 V1.0.1 的供电验证版。
 
 ## 开发与检查
+
+自动检查：[宿主回归](https://github.com/cerary/OBD-HUB-WATCH/actions/workflows/host-checks.yml) · [StopWatch V1.0 完整编译](https://github.com/cerary/OBD-HUB-WATCH/actions/workflows/firmware-build.yml)。
 
 ```bash
 python3 tools/test_host.py

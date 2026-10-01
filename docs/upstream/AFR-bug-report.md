@@ -1,5 +1,7 @@
 # AFR persistence and default-alarm defects in upstream
 
+Upstream report: [steveEcode/obd_brz_gauge #16](https://github.com/steveEcode/obd_brz_gauge/issues/16).
+
 Checked against `steveEcode/obd_brz_gauge` main commit `826a5071c842558771498507aa3335e906405d71` (2026-10-02). The upstream repo had no matching open issue when checked.
 
 ## Reproduction with original code
