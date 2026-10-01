@@ -2,15 +2,15 @@
   "project": "OBD HUB WATCH",
   "hardware": "M5Stack StopWatch C152 V1.0",
   "date": "2026-10-02",
-  "kind": "application-only",
+  "kind": "application-and-bootmedia",
   "app": {
-    "file": "OBD-HUB-WATCH-v1.0-20261002-charge-led-app.bin",
-    "size": 2591328,
-    "sha256": "10027729217868efd61db2d85aff26a81761ca1fe34f60a6bc5fc2a3a588444b",
+    "file": "OBD-HUB-WATCH-v1.0-20261002-jcw-startup-app.bin",
+    "size": 2592032,
+    "sha256": "44b26d7f4b32497a8b09a4f0c5d402e9c558c87b19a78f9ca7f111d31c9a0380",
     "partition_size": 3145728,
     "flash_offset": "0x20000"
   },
-  "build_git_head": "ce5cdc141f05e5f9ca26150059fba63262516ca7",
+  "build_git_head": "afab0051d17a08aad5bee83e2c833f40cec5837c",
   "build_dirty": true,
   "upstream_base": "528f54243ea1fe6f5e698291843ba3840e32efe5",
   "idf": "5.5.4",
@@ -21,15 +21,14 @@
     "elf_hash_matches": true,
     "display_ready": true,
     "lvgl_started": true,
-    "power_readable": true,
-    "rear_wake_verified": true,
-    "cx_feature_started": true,
-    "charge_led_initial_off_verified": true,
-    "charge_led_control_no_fault": true,
-    "single_app_boot": true,
+    "animation_ready": true,
+    "native_player_ready": true,
+    "complete_animation": true,
+    "external_power_readable": true,
+    "single_boot": true,
     "fatal_errors": 0
   },
-  "settings_preserved": true,
+  "settings_preserved": false,
   "latest_physical_ui_acceptance": "pending user test",
   "live_lp_alert_validation": false,
   "rear_wireless_5v_physical_validation": false,
@@ -42,7 +41,7 @@
     "main/python_test.py": "c8182ac673385fc8feb4737db6ad18a37e413279ca4bebac8c4584e863ec7ec5",
     "main/app_obd_dsp/app_event.c": "b4faa244c91fd7eff293f66fbaa15654c62f16c9126c2ccc76650772982602e2",
     "main/app_obd_dsp/app_event.h": "fae1ebc8a603546f4232b0e008d0fcc3564ed0568394af5ab35e9cd17a499442",
-    "main/app_obd_dsp/boot_block_player.c": "dee612deb6e0504f76358d222d0a17ef9380bd3d3945e163aa93ce628fb9ad09",
+    "main/app_obd_dsp/boot_block_player.c": "a7c77b0ecd2b8e7dcf302bceca7af9c981884577f30cf0655c6d6f7e34998560",
     "main/app_obd_dsp/boot_block_player.h": "e47b93bd6514489ed2dd8b0a5ad631fcd2529fe04db35cec103d55f9f48dda79",
     "main/app_obd_dsp/boot_media_mount.c": "0898d09ea6fae14dec718f4a321088d7eb55460ac152d6dafc04c71eec62a4b8",
     "main/app_obd_dsp/boot_media_mount.h": "0053960a07bf63b721b1411dd52e80bc36d0ca47571ff2f2753330548e1d0774",
@@ -174,9 +173,9 @@
     "main/app_obd_dsp/project_identity.h": "ad80035320532a282b539ddc1195f6b713331c061fb950a692a9b89d31be419c"
   },
   "source_hash_format": "SHA-256 of source bytes with CRLF normalized to LF",
-  "build_project_version": "ce5cdc1-dirty",
-  "source_commit": "d632831232d4533d966c6314d7a05e7385db9338",
-  "flashed_at": "2026-10-02T02:44:11.013106+08:00",
+  "build_project_version": "afab005-dirty",
+  "source_commit": "a4b9ab40afd423f42aa8c672354e8c146b675db7",
+  "flashed_at": "2026-10-02T04:54:03.765487+08:00",
   "charge_led_boot_validation": "Initial OFF register readback and monitor startup passed",
   "charge_led_usb_charging_on_readback_observed": true,
   "charge_led_visible_behavior_validation": false,
@@ -187,10 +186,33 @@
     "main/stopwatch/stopwatch_board.h"
   ],
   "previous_app": {
-    "file": "OBD-HUB-WATCH-v1.0-20261002-app.bin",
-    "size": 2589824,
-    "sha256": "5546411c6062d31bbbdffd9a95034068486371956fbaa8f846657b61d95e8c8d",
+    "file": "OBD-HUB-WATCH-v1.0-20261002-charge-led-app.bin",
+    "size": 2591328,
+    "sha256": "10027729217868efd61db2d85aff26a81761ca1fe34f60a6bc5fc2a3a588444b",
     "partition_size": 3145728,
     "flash_offset": "0x20000"
-  }
+  },
+  "bootmedia": {
+    "file": "bootmedia.raw.bin",
+    "size": 5236741,
+    "sha256": "6ac8ce8863c2f502ebb0f2546f552ffbb85fd4c087f906fa85d5eae1aa5efc45",
+    "partition_size": 6160384,
+    "flash_offset": "0xA20000",
+    "format": "delta_runs_rgb565_black_v3",
+    "canvas": [
+      466,
+      466
+    ],
+    "fps": 30,
+    "frames": 190
+  },
+  "setting_changes": {
+    "INTRO": {
+      "before": "RACE",
+      "after": "VIDEO"
+    }
+  },
+  "other_nvs_settings_preserved": true,
+  "animation_elapsed_ms": 6279,
+  "visible_animation_physical_validation": false
 }
