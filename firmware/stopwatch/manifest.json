@@ -4,13 +4,13 @@
   "date": "2026-10-02",
   "kind": "application-only",
   "app": {
-    "file": "OBD-HUB-WATCH-v1.0-20261002-app.bin",
-    "size": 2589824,
-    "sha256": "5546411c6062d31bbbdffd9a95034068486371956fbaa8f846657b61d95e8c8d",
+    "file": "OBD-HUB-WATCH-v1.0-20261002-charge-led-app.bin",
+    "size": 2591328,
+    "sha256": "10027729217868efd61db2d85aff26a81761ca1fe34f60a6bc5fc2a3a588444b",
     "partition_size": 3145728,
     "flash_offset": "0x20000"
   },
-  "build_git_head": "7cd158a1406",
+  "build_git_head": "ce5cdc141f05e5f9ca26150059fba63262516ca7",
   "build_dirty": true,
   "upstream_base": "528f54243ea1fe6f5e698291843ba3840e32efe5",
   "idf": "5.5.4",
@@ -22,17 +22,19 @@
     "display_ready": true,
     "lvgl_started": true,
     "power_readable": true,
+    "rear_wake_verified": true,
     "cx_feature_started": true,
+    "charge_led_initial_off_verified": true,
+    "charge_led_control_no_fault": true,
     "single_app_boot": true,
-    "fatal_errors": 0,
-    "rear_wake_configuration_verified": true
+    "fatal_errors": 0
   },
   "settings_preserved": true,
   "latest_physical_ui_acceptance": "pending user test",
   "live_lp_alert_validation": false,
   "rear_wireless_5v_physical_validation": false,
   "source_sha256": {
-    "main/app_main.c": "91a8b9d95127fb2ec8ff8e2f1ecde22ff1abe115ce1df3140d1e16899953c93c",
+    "main/app_main.c": "7587dc269524cd77d5960f3c7b9c60d24b570d874a62482f160140462b550797",
     "main/CMakeLists.txt": "d30eacfabe5f6724f09e7c4e5b76a777dc33f0fb9808c9821c24ffd735804c5b",
     "main/idf_component.yml": "116e9ac0588c5da763d76983f271321c2a152615dd47b9b8e92de8830f57b638",
     "main/Kconfig.projbuild": "39c8ef6750bf7a2c3bb1384c6e672e7db4fade03285b655eade7e9dfaab46dec",
@@ -102,8 +104,8 @@
     "main/export_path/ui_theme_generated.c": "3865484b30a6fcbd4dfc6595b7a12f544e23cd5f64cc7264a98a57b8d22c5140",
     "main/stopwatch/cst820.cpp": "7b39e1944843c6a3ff4df3a136c091f4db239a382d019389c074705d859b8408",
     "main/stopwatch/cst820.h": "a3cf74c35316ede0f06cee5e3420c314e620129fcc84d3379d1cdbaa02250872",
-    "main/stopwatch/stopwatch_board.cpp": "3ddf15993e93ef0909958e38206964fd80be558a368be9a337ced8c26e948b44",
-    "main/stopwatch/stopwatch_board.h": "7b93f5acac679ea6bb55b234254de43d8f794d7335542e3d5ca4ef216cbab9cd",
+    "main/stopwatch/stopwatch_board.cpp": "b5f9930489fac38faf3fada1a80750c6f6eca19fe16e5f449b1efd8ebff5168c",
+    "main/stopwatch/stopwatch_board.h": "8d4dc92c2257f793c16726e9c19f9428bd89bc95f483ff41fd9a3dfed0c0887d",
     "main/theme_engine/PROTECTED_PAGES.md": "4d341513021a4e87da645da5b3e0bd4c4548840f3936f70bc14c47fc129219b6",
     "main/theme_engine/theme_interface.h": "e80093229710601a570026d352b10974a51de2e18d3a9850df81c2f671083712",
     "main/theme_engine/theme_loader.c": "ec38688ba61b29398d197b2ad1158b8850f150562712acd5987de31f24013ace",
@@ -171,5 +173,24 @@
     "CMakeLists.txt": "665bed36e2294e1c97b2a13cb5ef3af77140546137edb156f0dd37347dc498d7",
     "main/app_obd_dsp/project_identity.h": "ad80035320532a282b539ddc1195f6b713331c061fb950a692a9b89d31be419c"
   },
-  "source_hash_format": "SHA-256 of source bytes with CRLF normalized to LF"
+  "source_hash_format": "SHA-256 of source bytes with CRLF normalized to LF",
+  "build_project_version": "ce5cdc1-dirty",
+  "source_commit": "d632831232d4533d966c6314d7a05e7385db9338",
+  "flashed_at": "2026-10-02T02:44:11.013106+08:00",
+  "charge_led_boot_validation": "Initial OFF register readback and monitor startup passed",
+  "charge_led_usb_charging_on_readback_observed": true,
+  "charge_led_visible_behavior_validation": false,
+  "charge_led_charging_transition_validation": false,
+  "charge_led_source_changed_files": [
+    "main/app_main.c",
+    "main/stopwatch/stopwatch_board.cpp",
+    "main/stopwatch/stopwatch_board.h"
+  ],
+  "previous_app": {
+    "file": "OBD-HUB-WATCH-v1.0-20261002-app.bin",
+    "size": 2589824,
+    "sha256": "5546411c6062d31bbbdffd9a95034068486371956fbaa8f846657b61d95e8c8d",
+    "partition_size": 3145728,
+    "flash_offset": "0x20000"
+  }
 }
