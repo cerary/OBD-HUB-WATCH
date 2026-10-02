@@ -59,6 +59,7 @@ write('host_shim.h', '''#pragma once
 #include "ui.h"
 #include "ui_status_ring.h"
 #include "ui_peak_marker.h"
+#include "ui_data_entry.h"
 #include "app_obd_dsp/vehicle_profiles.h"
 #include <stdlib.h>
 #include <string.h>
@@ -85,13 +86,15 @@ def function(source, marker):
 
 helpers = (UI/'ui_helpers.c').read_text()
 start = helpers.index('#if CONFIG_OBD_HW_VERSION_M5STOPWATCH\n#define STOPWATCH_RING_SIZE')
-write('host_helpers.c', '#include "host_shim.h"\n' + helpers[start:])
+write('host_helpers.c', '#include "host_shim.h"\n' + function(helpers, 'void _ui_screen_change(') + '\n' + helpers[start:])
 refresh = function((UI/'ui.c').read_text(), 'if (scr == ui_ScreenPageRpm) {')
 speed_refresh = function((UI/'ui.c').read_text(), 'if (scr == ui_ScreenPageSpeed) {')
 speed_step = function((UI/'ui.c').read_text(), 'static inline int32_t anim_step_i32(')
+gear_refresh = function((UI/'ui.c').read_text(), 'if (scr == ui_ScreenPageGear) {')
 write('host_update.c', '#include "host_shim.h"\n#include "ui_ext.h"\n#define IN_SWEEP (ui_ext_sweep_active())\n#define ANIM_THRESH_SPD 10\n'
-      + speed_step + '\nvoid host_update(uint16_t usRpm) {ui_peak_marker_tick();lv_obj_t *scr = lv_scr_act();\n' + refresh + '\n}\n'
-      + 'void host_speed(uint16_t ucSpeed) {ui_peak_marker_tick();lv_obj_t *scr = lv_scr_act();\n' + speed_refresh + '\n}\n')
+      + speed_step + '\nvoid host_update(uint16_t usRpm) {ui_peak_marker_tick();lv_obj_t *scr = lv_scr_act();bool on_entry=ui_data_entry_pending(scr);\n' + refresh + '\nui_data_entry_complete(scr);}\n'
+      + 'void host_speed(uint16_t ucSpeed) {ui_peak_marker_tick();lv_obj_t *scr = lv_scr_act();bool on_entry=ui_data_entry_pending(scr);\n' + speed_refresh + '\nui_data_entry_complete(scr);}\n'
+      + 'void host_gear(enGear eGear,bool s_gear_unknown) {lv_obj_t *scr=lv_scr_act();bool on_entry=ui_data_entry_pending(scr);\n' + gear_refresh + '\nui_data_entry_complete(scr);}\n')
 info_refresh = function((UI/'ui.c').read_text(), 'if (scr == ui_ScreenPageEasterEgg && ui_LabelEasterEggInfo) {')
 with (BUILD/'host_update.c').open('a') as f:
     f.write('#include <stdio.h>\n#include "bsp_obd_dsp/nvs_storage.h"\n#include "bsp_obd_dsp/espnow_link.h"\n#include "bsp_obd_dsp/elm327_ble_client.h"\n'
@@ -127,6 +130,7 @@ sources = [UI/'screens/ui_ScreenPageEasterEgg.c', UI/'screens/ui_ScreenPageLogo.
            UI/'ui_status_ring.c', UI/'ui_disp_item.c', UI/'ui_peak_marker.c', UI/'screens/ui_ScreenPagePeakSettings.c',
            MAIN/'app_obd_dsp/peak_marker_policy.c',
            MAIN/'app_obd_dsp/status_ring_policy.c', MAIN/'app_obd_dsp/obd_data_cache.c']
+sources += [UI/'ui_data_entry.c', UI/'ui_display_filter.c']
 sources += [UI/f'fonts/ui_font_FontTypoderSize{s}.c' for s in (140, 90, 24, 20, 16, 36, 40, 44)]
 sources += [UI/f'images/{s}.c' for s in ('ui_img_pngblackear_png', 'ui_img_mini_jcw', 'ui_img_mini_gp3')]
 sources += [UI/'ui_theme_generated.c']

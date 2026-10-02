@@ -4,6 +4,7 @@
 // Project name: OBD_PRJ
 
 #include "../ui.h"
+#include "../ui_data_entry.h"
 
 void ui_ScreenPageGear_screen_init(void)
 {
@@ -24,7 +25,7 @@ void ui_ScreenPageGear_screen_init(void)
     lv_obj_set_width(ui_GearPageArcLabelGearNumText, LV_SIZE_CONTENT);   /// 1
     lv_obj_set_height(ui_GearPageArcLabelGearNumText, LV_SIZE_CONTENT);    /// 1
     lv_obj_set_align(ui_GearPageArcLabelGearNumText, LV_ALIGN_CENTER);
-    lv_label_set_text(ui_GearPageArcLabelGearNumText, "N");
+    lv_label_set_text(ui_GearPageArcLabelGearNumText, "--");
     lv_obj_set_style_text_color(ui_GearPageArcLabelGearNumText, ui_theme_color_lv(UI_COLOR_TEXT_PRIMARY), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_opa(ui_GearPageArcLabelGearNumText, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_font(ui_GearPageArcLabelGearNumText, &ui_font_FontTypoderSize140, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -74,4 +75,5 @@ void ui_ScreenPageGear_screen_init(void)
     lv_obj_move_foreground(ui_SpinnerGearPage);   // bring the ring to the front
     lv_obj_add_event_cb(ui_ScreenPageGear, ui_event_gear_background, LV_EVENT_GESTURE, NULL);
 
+    ui_data_entry_register(ui_ScreenPageGear);
 }

@@ -4,6 +4,7 @@
 // Project name: OBD_PRJ
 
 #include "../ui.h"
+#include "../ui_data_entry.h"
 #include "../ui_peak_marker.h"
 
 void ui_ScreenPageRpm_screen_init(void)
@@ -71,7 +72,7 @@ void ui_ScreenPageRpm_screen_init(void)
 #endif
     lv_obj_set_align(ui_RpmPageArcLabelRpmText, LV_ALIGN_CENTER);
     lv_label_set_long_mode(ui_RpmPageArcLabelRpmText, LV_LABEL_LONG_CLIP);
-    lv_label_set_text(ui_RpmPageArcLabelRpmText, "0");
+    lv_label_set_text(ui_RpmPageArcLabelRpmText, "--");
     lv_obj_set_style_text_align(ui_RpmPageArcLabelRpmText, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_color(ui_RpmPageArcLabelRpmText, ui_theme_color_lv(UI_COLOR_TEXT_PRIMARY), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_opa(ui_RpmPageArcLabelRpmText, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -123,4 +124,5 @@ void ui_ScreenPageRpm_screen_init(void)
     lv_obj_move_foreground(ui_SpinnerRpmPage);   // bring the ring to the front
     lv_obj_add_event_cb(ui_ScreenPageRpm, ui_event_rpm_background, LV_EVENT_GESTURE, NULL);
 
+    ui_data_entry_register(ui_ScreenPageRpm);
 }

@@ -29,6 +29,7 @@ uint8_t ui_theme_gauge_page_index;
 static const vehicle_profile_t vehicle = {.name="JCW F56 8AT"};
 void host_update(uint16_t rpm);
 void host_speed(uint16_t speed);
+void host_gear(enGear gear,bool unknown);
 void host_info(bool is_slave,bool ble_now);
 const nvs_user_cfg_t *nvs_cfg_get(void) {return &user_cfg;}
 esp_err_t nvs_cfg_set(const nvs_user_cfg_t *c) {user_cfg=*c; ++cfg_saves; return ESP_OK;}
@@ -39,6 +40,8 @@ void nvs_stat_update_speed(uint8_t speed, uint32_t dt) {(void)speed;(void)dt;}
 const vehicle_profile_t *vehicle_profile_get_active(void) {return &vehicle;}
 const vehicle_profile_t *vehicle_profile_get_all(uint8_t *n) {*n=1;return &vehicle;}
 void vehicle_profile_set_active(uint8_t n) {(void)n;}
+float vehicle_profile_calc_constant(const vehicle_profile_t *p) {(void)p;return 1.f;}
+const gear_ratio_range_t *vehicle_profile_get_gear_ranges(uint8_t *count) {*count=0;return NULL;}
 bool elm327_ble_is_connected(void) {return connected;}
 bool elm327_ble_cx_is_waiting(void) {return waiting || sleeping;}
 bool elm327_ble_cx_is_asleep(void) {return sleeping;}
@@ -105,8 +108,6 @@ lv_color_t ui_theme_color_lv(ui_color_role_t r) {return lv_color_hex(ui_theme_co
 uint8_t ui_theme_count(void) {return 1;}
 const char *ui_theme_names_joined(void) {return "DEFAULT";}
 void ui_theme_set_active(uint8_t n) {(void)n;}
-void _ui_screen_change(lv_obj_t **dst, lv_scr_load_anim_t mode, int spd, int delay, void (*init)(void))
-{(void)mode;(void)spd;(void)delay;if(!*dst)init();lv_scr_load(*dst);}
 size_t strlcat(char *dst,const char *src,size_t size)
 {size_t d=strlen(dst),s=strlen(src);if(d<size-1)strncat(dst,src,size-d-1);return d+s;}
 
@@ -132,6 +133,95 @@ static void seed(void) {
     obd_data_set_rpm(3000);obd_data_set_speed(80);obd_data_set_coolant_temp(92);
     obd_data_set_intake_temp(31);obd_data_set_oil_temp(101);obd_data_set_load_pct(42);
     obd_data_set_tps(25);obd_data_set_bat_mv(13900);obd_data_set_boost_x10(6);obd_data_set_afr_x100(1470);
+}
+
+static unsigned entry_timer_runs;
+static void entry_timer_cb(lv_timer_t *timer) {(void)timer;++entry_timer_runs;}
+static void assert_missing(lv_obj_t *screen,lv_obj_t *label)
+{
+    lv_scr_load(screen);
+    assert(strcmp(lv_label_get_text(label),"--")==0);
+}
+static void test_data_entry(void)
+{
+    sleeping=false;sweep=false;demo=false;connected=true;
+    obd_data_invalidate_freshness();
+    assert_missing(ui_ScreenPageRpm,ui_RpmPageArcLabelRpmText);
+    assert_missing(ui_ScreenPageSpeed,ui_SpeedPageArcLabelSpeedText);
+    assert_missing(ui_ScreenPageGear,ui_GearPageArcLabelGearNumText);
+    assert_missing(ui_ScreenPageTemp,ui_LabelTempValue[0]);
+    assert_missing(ui_ScreenPageInfo,ui_LabelInfoValue[0]);
+    assert_missing(ui_ScreenPageNeedle,ui_NeedleValueLabel);
+    assert_missing(ui_ScreenPageOilPressure,ui_LabelOilPressureText);
+
+    // Entry wakes the production UI timer, without waiting out its old period.
+    lv_timer_t *timer=lv_timer_create(entry_timer_cb,1000,NULL);
+    ui_data_entry_bind_timer(timer);lv_timer_reset(timer);
+    lv_scr_load(ui_ScreenPageRpm);lv_timer_handler();
+    assert(entry_timer_runs==1);
+
+    // Real zero remains distinct from missing data, including neutral gear.
+    obd_data_set_rpm(0);obd_data_set_speed(0);obd_data_set_gear(0);
+    lv_scr_load(ui_ScreenPageSpeed);lv_scr_load(ui_ScreenPageRpm);
+    assert(strcmp(lv_label_get_text(ui_RpmPageArcLabelRpmText),"0")==0);
+    host_update(0);
+    lv_scr_load(ui_ScreenPageSpeed);
+    assert(strcmp(lv_label_get_text(ui_SpeedPageArcLabelSpeedText),"0")==0);
+    host_speed(0);
+    lv_scr_load(ui_ScreenPageGear);
+    assert(strcmp(lv_label_get_text(ui_GearPageArcLabelGearNumText),"N")==0);
+    host_gear(GEAR_NEUTRAL,false);
+
+    lv_tick_inc(500);seed();obd_data_set_gear(4);
+    uint16_t cached_speed=obd_data_get_speed();
+    char speed_text[16];snprintf(speed_text,sizeof(speed_text),"%u",cached_speed);
+    assert(cached_speed>0); // the cache's existing road-speed smoothing still applies
+    lv_scr_load(ui_ScreenPageRpm);
+    assert(strcmp(lv_label_get_text(ui_RpmPageArcLabelRpmText),"3000")==0);
+    host_update(3000);
+    lv_scr_load(ui_ScreenPageSpeed);
+    assert(strcmp(lv_label_get_text(ui_SpeedPageArcLabelSpeedText),speed_text)==0);
+    host_speed(cached_speed);
+    assert(strcmp(lv_label_get_text(ui_SpeedPageArcLabelSpeedText),speed_text)==0);
+    lv_scr_load(ui_ScreenPageGear);
+    assert(strcmp(lv_label_get_text(ui_GearPageArcLabelGearNumText),"4")==0);
+    host_gear(GEAR_4,false);
+
+    // Re-entering with an unchanged sample must still refresh a new/reset label.
+    lv_scr_load(ui_ScreenPageSpeed);lv_scr_load(ui_ScreenPageRpm);
+    lv_label_set_text(ui_RpmPageArcLabelRpmText,"wrong");host_update(3000);
+    assert(strcmp(lv_label_get_text(ui_RpmPageArcLabelRpmText),"3000")==0);
+    lv_scr_load(ui_ScreenPageGear);lv_label_set_text(ui_GearPageArcLabelGearNumText,"wrong");
+    host_gear(GEAR_4,false);
+    assert(strcmp(lv_label_get_text(ui_GearPageArcLabelGearNumText),"4")==0);
+
+    // Age and connection state are checked before showing the very first frame.
+    lv_tick_inc(16001);
+    assert_missing(ui_ScreenPageRpm,ui_RpmPageArcLabelRpmText);
+    assert_missing(ui_ScreenPageTemp,ui_LabelTempValue[0]);
+    seed();connected=false;
+    assert_missing(ui_ScreenPageRpm,ui_RpmPageArcLabelRpmText);
+    assert_missing(ui_ScreenPageSpeed,ui_SpeedPageArcLabelSpeedText);
+    assert_missing(ui_ScreenPageGear,ui_GearPageArcLabelGearNumText);
+    assert_missing(ui_ScreenPageInfo,ui_LabelInfoValue[0]);
+
+    // Missing-to-valid recovery shows the real first sample without a fake ramp.
+    int32_t displayed=800;
+    lv_label_set_text(ui_LabelTempValue[0],"--");
+    disp_item_update(&displayed,ui_LabelTempValue[0],DISP_ITEM_CLT,92,true,5);
+    assert(displayed==92 && strcmp(lv_label_get_text(ui_LabelTempValue[0]),"92")==0);
+    disp_item_update(&displayed,ui_LabelTempValue[0],DISP_ITEM_CLT,93,true,5);
+    assert(displayed==93);
+
+    // The explicit sweep animation continues to own its test readings.
+    connected=true;sweep=true;
+    lv_label_set_text(ui_RpmPageArcLabelRpmText,"1234");
+    lv_scr_load(ui_ScreenPageRpm);
+    assert(strcmp(lv_label_get_text(ui_RpmPageArcLabelRpmText),"1234")==0);
+    host_update(4000);
+    assert(strcmp(lv_label_get_text(ui_RpmPageArcLabelRpmText),"4000")==0);
+    sweep=false;ui_data_entry_bind_timer(NULL);lv_timer_del(timer);
+    puts("PASS data entry: initial missing, valid zero/neutral, fresh cached values, same-value re-entry, stale/disconnected, timer wake, recovery and sweep");
 }
 static void frame(const char *folder,const char *name) {seed();render(folder,name);}
 int main(int argc,char **argv) {
@@ -177,6 +267,7 @@ int main(int argc,char **argv) {
     seed();obd_data_set_rpm(5500);host_update(5500);render(folder,"rpm-red");
     lv_tick_inc(6000);obd_data_set_coolant_temp(92);host_update(UINT16_MAX);render(folder,"rpm-stale");
     sleeping=true;render(folder,"rpm-cx-sleep");
+    test_data_entry();
     puts("Rendered all current carousel pages and settings from production LVGL/UI sources with illustrative inputs");
     return 0;
 }

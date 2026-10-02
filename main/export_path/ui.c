@@ -8,6 +8,7 @@
 #include "ui_ext.h"
 #include "ui_disp_item.h"
 #include "ui_display_filter.h"
+#include "ui_data_entry.h"
 #include "ui_theme.h"
 #include "theme_engine/theme_interface.h"
 #include "app_obd_dsp/app_event.h"
@@ -317,13 +318,14 @@ void ui_needle_page_update(float sweep_ratio, int16_t clt, int16_t iat, int16_t 
     int32_t needle_thresh = (ns->nmax - ns->nmin) / 30;
     if (needle_thresh < 2) needle_thresh = 2;
 
+    if (valid && ui_data_entry_pending(ui_ScreenPageNeedle)) s_disp_needle = raw;
     disp_item_update(&s_disp_needle, ui_NeedleValueLabel, src, raw, valid, needle_thresh);
 
     // Needle position: use the smoothed value
     int32_t nval = (s_disp_needle / ns->div);
     if (nval < ns->nmin) nval = ns->nmin;
     if (nval > ns->nmax) nval = ns->nmax;
-    if (nval != s_last_needle_meter) {
+    if (ui_data_entry_pending(ui_ScreenPageNeedle) || nval != s_last_needle_meter) {
         lv_meter_set_indicator_value(ui_NeedleMeter, ui_NeedleIndic, nval);
         s_last_needle_meter = nval;
     }
@@ -581,6 +583,7 @@ void my_timerMain(lv_timer_t * timer)
 
     lv_obj_t *scr = lv_scr_act();
     bool live_data_screen = ui_screen_updates_live_data(scr);
+    const bool on_entry = ui_data_entry_pending(scr);
     bool rpm_warn_possible = ui_ext_rpm_warn_possible();
 
     if (IN_SWEEP || (!ble_now && !ui_ext_showroom_is_active())) {
@@ -656,7 +659,7 @@ void my_timerMain(lv_timer_t * timer)
         uint8_t gc = vehicle_profile_get_active()->gear_count;
         if (gc < 1) gc = 6;
         enGear g = (eGear <= GEAR_8) ? eGear : GEAR_8;
-        if (s_gear_unknown != s_last_gear_unknown || g != s_last_gear_disp || IN_SWEEP) {
+        if (on_entry || s_gear_unknown != s_last_gear_unknown || g != s_last_gear_disp || IN_SWEEP) {
             s_last_gear_unknown = s_gear_unknown;
             s_last_gear_disp = g;
             if (s_gear_unknown) {
@@ -681,7 +684,7 @@ void my_timerMain(lv_timer_t * timer)
         ui_peak_marker_sample(UI_PEAK_RPM, usRpm);
 #endif
         static int32_t s_last_rpm = -1;
-        if ((int32_t)usRpm != s_last_rpm) {
+        if (on_entry || (int32_t)usRpm != s_last_rpm) {
             s_last_rpm = (int32_t)usRpm;
             if (usRpm == UINT16_MAX) {
                 lv_label_set_text(ui_RpmPageArcLabelRpmText, "--");
@@ -698,13 +701,13 @@ void my_timerMain(lv_timer_t * timer)
         static int32_t s_last_spd = -1;
         bool speed_valid = ucSpeed != UINT16_MAX;
         if (!speed_valid) { s_disp_spd = 0; }
-        else if (IN_SWEEP) { s_disp_spd = ucSpeed; }
+        else if (IN_SWEEP || on_entry || strcmp(lv_label_get_text(ui_SpeedPageArcLabelSpeedText), "--") == 0) { s_disp_spd = ucSpeed; }
         else { s_disp_spd = anim_step_i32(s_disp_spd, (int32_t)ucSpeed, ANIM_THRESH_SPD); }
 #if CONFIG_OBD_HW_VERSION_M5STOPWATCH
         ui_peak_marker_sample(UI_PEAK_SPEED, s_disp_spd);
 #endif
         int32_t speed_key = speed_valid ? s_disp_spd : -2;
-        if (speed_key != s_last_spd) {
+        if (on_entry || speed_key != s_last_spd) {
             s_last_spd = speed_key;
             if (!speed_valid) lv_label_set_text(ui_SpeedPageArcLabelSpeedText, "--");
             else lv_label_set_text_fmt(ui_SpeedPageArcLabelSpeedText, "%d", (int)s_disp_spd);
@@ -761,6 +764,7 @@ void my_timerMain(lv_timer_t * timer)
 
                 int32_t value = 0;
                 bool valid = disp_item_read_value(item, clt, iat, oil, load_pct, tps, bat_mv, oilp_x10, brake_x10, usRpm, ucSpeed, boost_x10, afr_x100, &value);
+                if (on_entry && valid) s_disp_temp[i] = value;
                 disp_item_update(&s_disp_temp[i], ui_LabelTempValue[i], item, value, valid, ANIM_THRESH_TEMP);
             }
         }
@@ -790,6 +794,7 @@ void my_timerMain(lv_timer_t * timer)
         } else {
             cvalid = disp_item_read_value(citem, clt, iat, oil, load_pct, tps, bat_mv,
                                           oilp_x10, brake_x10, usRpm, ucSpeed, boost_x10, afr_x100, &cval);
+            if (on_entry && cvalid) s_disp_chart = cval;
             disp_item_update(&s_disp_chart, ui_LabelOilPressureText, citem, cval, cvalid, ANIM_THRESH_TEMP);
         }
 
@@ -849,10 +854,13 @@ void my_timerMain(lv_timer_t * timer)
 
                 int32_t value = 0;
                 bool valid = disp_item_read_value(item, clt, iat, oil, load_pct, tps, bat_mv, oilp_x10, brake_x10, usRpm, ucSpeed, boost_x10, afr_x100, &value);
+                if (on_entry && valid) s_disp_info[i] = value;
                 disp_item_update(&s_disp_info[i], ui_LabelInfoValue[i], item, value, valid, ANIM_THRESH_TEMP);
             }
         }
     }
+
+    ui_data_entry_complete(scr);
 
     /* Dynamically update the EasterEgg (device info) page: role + OBD link state + build tag. */
     if (scr == ui_ScreenPageEasterEgg && ui_LabelEasterEggInfo) {
@@ -1562,9 +1570,9 @@ void ui_init(void)
         ui_ScreenPageInfo_screen_init();
     }
 
-    lv_timer_create(my_timerMain,
+    ui_data_entry_bind_timer(lv_timer_create(my_timerMain,
                     ui_refresh_period_ms_for_screen(lv_scr_act(), false, false, false),
-                    NULL);
+                    NULL));
 }
 
 /* OBD protocol page events */

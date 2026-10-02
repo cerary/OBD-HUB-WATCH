@@ -5,6 +5,7 @@
 //  Data reading/range/refresh logic reuses the disp_item system in ui.c (ui_needle_* interfaces)
 
 #include "../ui.h"
+#include "../ui_data_entry.h"
 #include <string.h>
 #include "bsp_obd_dsp/nvs_storage.h"
 #include "app_obd_dsp/vehicle_profiles.h"
@@ -154,6 +155,7 @@ void ui_ScreenPageNeedle_screen_init(void)
 
     lv_obj_move_foreground(ring);   // bring the ring to the front
     lv_obj_add_event_cb(ui_ScreenPageNeedle, ui_event_needle_background, LV_EVENT_GESTURE, NULL);
+    ui_data_entry_register(ui_ScreenPageNeedle);
 }
 
 void ui_ScreenPageNeedleConfig_screen_init(void)

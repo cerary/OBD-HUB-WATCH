@@ -2,6 +2,7 @@
 // CLT / IAT / OIL(SSM 22 10 17) - 3-row layout
 
 #include "../ui.h"
+#include "../ui_data_entry.h"
 
 // Value labels (externally accessible from timer callback)
 lv_obj_t *ui_LabelCoolantTempText = NULL;
@@ -157,4 +158,5 @@ void ui_ScreenPageTemp_screen_init(void)
     // Events
     lv_obj_move_foreground(spinner_ring);   // bring the ring to the front
     lv_obj_add_event_cb(ui_ScreenPageTemp, ui_event_temp_background, LV_EVENT_GESTURE, NULL);
+    ui_data_entry_register(ui_ScreenPageTemp);
 }

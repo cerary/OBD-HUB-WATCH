@@ -5,6 +5,7 @@
 //   Row 3 (bottom center): [IAT °C]
 
 #include "../ui.h"
+#include "../ui_data_entry.h"
 
 lv_obj_t *ui_ScreenPageInfo  = NULL;
 lv_obj_t *ui_LabelInfoCLT    = NULL;
@@ -193,4 +194,5 @@ void ui_ScreenPageInfo_screen_init(void)
     // Touch events
     lv_obj_move_foreground(ring);   // bring the ring to the front
     lv_obj_add_event_cb(ui_ScreenPageInfo, ui_event_info_background, LV_EVENT_GESTURE, NULL);
+    ui_data_entry_register(ui_ScreenPageInfo);
 }

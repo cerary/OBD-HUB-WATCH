@@ -2,6 +2,7 @@
 //  - Swipe down → data source selection page; title/dot/unit/color/range are set per data item by ui_chart_apply_source()
 
 #include "../ui.h"
+#include "../ui_data_entry.h"
 
 lv_obj_t *ui_LabelOilPressureText = NULL;
 lv_obj_t *ui_ChartOilPressure = NULL;
@@ -35,7 +36,7 @@ void ui_ScreenPageOilPressure_screen_init(void)
 
     // Layout unified with the brake temp page: value Size28 + unit on the same row, chart moved up to +62
     ui_LabelOilPressureText = lv_label_create(ui_ScreenPageOilPressure);
-    lv_label_set_text(ui_LabelOilPressureText, "--.-");
+    lv_label_set_text(ui_LabelOilPressureText, "--");
     lv_obj_set_style_text_font(ui_LabelOilPressureText, &ui_font_FontTypoderSize36, LV_PART_MAIN);
     lv_obj_set_style_text_color(ui_LabelOilPressureText, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
     lv_obj_set_width(ui_LabelOilPressureText, 172);
@@ -98,4 +99,5 @@ void ui_ScreenPageOilPressure_screen_init(void)
 
     lv_obj_move_foreground(ring);   // bring the ring to the front
     lv_obj_add_event_cb(ui_ScreenPageOilPressure, ui_event_oil_pressure_background, LV_EVENT_GESTURE, NULL);
+    ui_data_entry_register(ui_ScreenPageOilPressure);
 }
