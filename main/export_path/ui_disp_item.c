@@ -5,6 +5,7 @@
 #include "ui_disp_item.h"
 #include "bsp_obd_dsp/nvs_storage.h"
 #include "app_obd_dsp/vehicle_profiles.h"
+#include "ui_status_ring.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -138,6 +139,10 @@ void disp_item_set_value_color(lv_obj_t *label, disp_item_t item, int32_t value,
 
     int16_t thr = nvs_chart_alarm_get((uint8_t)item);   // raw-value units; 32767=disabled
     lv_color_t color = (valid && value >= (int32_t)thr) ? lv_color_hex(0xFF4D4D) : lv_color_hex(0xFFFFFF);
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    if (item <= DISP_ITEM_OIL)
+        color = lv_color_hex(ui_status_ring_temperature_color(item, valid));
+#endif
     if (lv_color_to32(lv_obj_get_style_text_color(label, LV_PART_MAIN)) != lv_color_to32(color)) {
         lv_obj_set_style_text_color(label, color, LV_PART_MAIN);
     }
@@ -148,6 +153,13 @@ static void disp_item_set_value_color_throttled(lv_obj_t *label, disp_item_t ite
     static uint32_t s_last_alarm_ms[DISP_ITEM_COUNT] = {0};
 
     if (!label) return;
+
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    if (item <= DISP_ITEM_OIL) {
+        disp_item_set_value_color(label, item, value, valid);
+        return;
+    }
+#endif
 
     int16_t thr = nvs_chart_alarm_get((uint8_t)item);   // raw-value units; 32767=disabled
     bool over_threshold = valid && thr < DISP_ITEM_ALARM_OFF && value >= (int32_t)thr;
@@ -221,7 +233,7 @@ void disp_item_update(int32_t *state, lv_obj_t *label, disp_item_t item,
         disp_item_set_text(label, item, *state, valid);
         color_dirty = true;
     }
-    if (color_dirty || (valid && (item == DISP_ITEM_OILP || item == DISP_ITEM_BKT))) {
+    if (color_dirty || (valid && (item <= DISP_ITEM_OIL || item == DISP_ITEM_OILP || item == DISP_ITEM_BKT))) {
         disp_item_set_value_color_throttled(label, item, *state, valid);
     }
 }

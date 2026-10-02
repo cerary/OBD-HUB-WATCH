@@ -4,6 +4,7 @@
 #include "ui_ext.h"
 #include "app_obd_dsp/obd_data_cache.h"
 #include "app_obd_dsp/status_ring_policy.h"
+#include "app_obd_dsp/temperature_alert_policy.h"
 #include "bsp_obd_dsp/nvs_storage.h"
 #include "bsp_obd_dsp/elm327_ble_client.h"
 #include "bsp_obd_dsp/espnow_link.h"
@@ -25,6 +26,32 @@ static lv_obj_t *s_last_screen, *s_notice;
 static uint32_t s_last_tick, s_connected_since, s_g_tick;
 static bool s_last_connected, s_ever_connected, s_g_valid;
 static uint16_t s_g_centi;
+static temperature_alert_policy_t s_temperature;
+
+static void update_temperature(void)
+{
+    bool slave = nvs_cfg_get()->device_role == ESPNOW_ROLE_SLAVE;
+    bool connected = slave ? espnow_link_slave_has_data() : elm327_ble_is_connected();
+    bool sleeping = !slave && elm327_ble_cx_is_asleep();
+    obd_data_snapshot_t data;
+    obd_data_freshness_t freshness;
+    obd_data_get_fresh_snapshot(&data, &freshness);
+    int32_t value[3] = {data.coolant_temp, data.intake_temp, data.oil_temp};
+    bool valid[3] = {data.coolant_temp > -40, data.intake_temp > -40, data.oil_temp > -41};
+    int16_t high[3];
+    for (uint8_t i = 0; i < 3; ++i) high[i] = nvs_chart_alarm_get(i);
+    temperature_alert_update(&s_temperature, lv_tick_get(), connected && !sleeping &&
+        !ui_ext_showroom_is_active() && !ui_ext_sweep_active(), value,
+        freshness.age_ms, valid, high);
+}
+
+uint32_t ui_status_ring_temperature_color(uint8_t item, bool valid)
+{
+    if (!valid || item >= TEMP_CHANNEL_COUNT) return 0xFFFFFF;
+    temperature_level_t level = s_temperature.level[item];
+    return level == TEMP_HOT ? (item == TEMP_IAT ? STATUS_RING_ORANGE : STATUS_RING_RED) :
+           level == TEMP_WARM ? STATUS_RING_YELLOW : 0xFFFFFF;
+}
 
 static bool live_page(lv_obj_t *screen)
 {
@@ -59,6 +86,8 @@ static void update(lv_obj_t *screen, bool force)
     in.initializing = connected && now - s_connected_since < 5000;
     in.sleeping = sleeping;
     in.demo = ui_ext_showroom_is_active();
+    in.temperature_managed = true;
+    for (uint8_t i = 0; i < 3; ++i) in.temperature_level[i] = s_temperature.level[i];
     obd_data_snapshot_t data;
     obd_data_freshness_t freshness;
     obd_data_get_fresh_snapshot(&data, &freshness);
@@ -119,11 +148,14 @@ static void update(lv_obj_t *screen, bool force)
         lv_obj_set_style_pad_hor(s_notice, 4, 0);
         lv_obj_clear_flag(s_notice, LV_OBJ_FLAG_CLICKABLE);
     }
-    bool show = out.state == RING_ALARM && out.item < RING_ITEM_COUNT &&
+    bool thermal = out.item < TEMP_CHANNEL_COUNT && s_temperature.level[out.item] != TEMP_NORMAL;
+    bool show = (out.state == RING_ALARM || (thermal && out.state == RING_APPROACH)) && out.item < RING_ITEM_COUNT &&
                 live_page(screen) && !ui_ext_sweep_active();
     if (show) {
         char text[32];
-        lv_snprintf(text, sizeof(text), "%s HIGH", ui_disp_item_name(out.item));
+        const char *state = thermal ? (s_temperature.level[out.item] == TEMP_HOT ?
+            (out.item == TEMP_IAT ? "HOT" : "HIGH") : "WARM") : "HIGH";
+        lv_snprintf(text, sizeof(text), "%s %s", ui_disp_item_name(out.item), state);
         if (strcmp(lv_label_get_text(s_notice), text)) lv_label_set_text(s_notice, text);
         lv_obj_set_style_text_color(s_notice, lv_color_hex(out.color), 0);
         lv_obj_align(s_notice, LV_ALIGN_CENTER, 0, 196);
@@ -137,7 +169,7 @@ static void ring_deleted(lv_event_t *e)
     if (entry->screen == s_last_screen) s_last_screen = NULL;
     memset(entry, 0, sizeof(*entry));
 }
-static void screen_loaded(lv_event_t *e) { update(lv_event_get_target(e), true); }
+static void screen_loaded(lv_event_t *e) { update_temperature(); update(lv_event_get_target(e), true); }
 void ui_status_ring_register(lv_obj_t *screen, lv_obj_t *ring, bool image)
 {
     for (unsigned i = 0; i < 40; ++i) {
@@ -148,7 +180,7 @@ void ui_status_ring_register(lv_obj_t *screen, lv_obj_t *ring, bool image)
         break;
     }
 }
-void ui_status_ring_tick(void) { update(lv_scr_act(), false); }
+void ui_status_ring_tick(void) { update_temperature(); update(lv_scr_act(), false); }
 void ui_status_ring_set_g_sample(float magnitude, bool valid)
 {
     s_g_valid = valid && isfinite(magnitude);
@@ -161,4 +193,5 @@ void ui_status_ring_set_g_sample(float magnitude, bool valid)
 void ui_status_ring_register(lv_obj_t *screen, lv_obj_t *ring, bool image) { (void)screen; (void)ring; (void)image; }
 void ui_status_ring_tick(void) {}
 void ui_status_ring_set_g_sample(float magnitude, bool valid) { (void)magnitude; (void)valid; }
+uint32_t ui_status_ring_temperature_color(uint8_t item, bool valid) { (void)item; (void)valid; return 0xFFFFFF; }
 #endif

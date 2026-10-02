@@ -1,5 +1,6 @@
 #include "status_ring_policy.h"
 #include <limits.h>
+#include "temperature_alert_policy.h"
 
 static uint32_t blend(uint32_t a, uint32_t b, int32_t n, int32_t d)
 {
@@ -48,6 +49,14 @@ static status_ring_result_t result(uint32_t color, status_ring_state_t state,
     return (status_ring_result_t){color, state, item};
 }
 
+static status_ring_result_t with_temperature(status_ring_result_t out,
+                                             status_ring_result_t temperature)
+{
+    // Actual parameter/G alarms outrank an early temperature warning.
+    return out.state != RING_ALARM && temperature.state == RING_APPROACH ?
+           temperature : out;
+}
+
 status_ring_result_t status_ring_evaluate(const status_ring_input_t *in,
                                          const status_ring_config_t *config)
 {
@@ -64,27 +73,34 @@ status_ring_result_t status_ring_evaluate(const status_ring_input_t *in,
         return result(in->initializing ? STATUS_RING_BLUE : STATUS_RING_SLEEP_COLOR,
                       in->initializing ? RING_CONNECTING : RING_NO_DATA, RING_ITEM_COUNT);
 
+    status_ring_result_t temperature = result(STATUS_RING_WHITE, RING_NORMAL, RING_ITEM_COUNT);
     // Enabled temperature alarms have priority on live pages, using only real,
     // fresh samples. Unsupported or expired channels cannot create an alarm.
     if (in->page != RING_PAGE_STATIC) {
         const uint8_t global[] = {RING_CLT, RING_OIL};
         for (unsigned j = 0; j < 2; ++j) {
             uint8_t i = global[j];
-            if (in->alarm[i] != INT16_MAX && fresh(in, i) && in->value[i] >= in->alarm[i])
+            if (in->temperature_managed) {
+                if (!fresh(in, i)) continue;
+                if (in->temperature_level[i] == TEMP_HOT)
+                    return result(STATUS_RING_RED, RING_ALARM, i);
+                if (in->temperature_level[i] == TEMP_WARM && temperature.state == RING_NORMAL)
+                    temperature = result(STATUS_RING_YELLOW, RING_APPROACH, i);
+            } else if (in->alarm[i] != INT16_MAX && fresh(in, i) && in->value[i] >= in->alarm[i])
                 return result(STATUS_RING_RED, RING_ALARM, i);
         }
     }
     if (in->page == RING_PAGE_G) {
         if (!in->g_valid || in->g_age_ms > 500)
-            return result(STATUS_RING_LOST_COLOR, RING_LOST, RING_ITEM_COUNT);
+            return with_temperature(result(STATUS_RING_LOST_COLOR, RING_LOST, RING_ITEM_COUNT), temperature);
         int32_t g = in->g_centi, limit = cfg->g_warn_centi;
         if (g >= limit) return result(STATUS_RING_RED, RING_ALARM, RING_ITEM_COUNT);
-        if (g <= limit / 3) return result(STATUS_RING_WHITE, RING_NORMAL, RING_ITEM_COUNT);
+        if (g <= limit / 3) return with_temperature(result(STATUS_RING_WHITE, RING_NORMAL, RING_ITEM_COUNT), temperature);
         if (g < limit * 2 / 3)
-            return result(blend(STATUS_RING_WHITE, STATUS_RING_GREEN,
-                               g - limit / 3, limit / 3), RING_NORMAL, RING_ITEM_COUNT);
-        return result(toward_red(g - limit * 2 / 3, limit - limit * 2 / 3),
-                      RING_APPROACH, RING_ITEM_COUNT);
+            return with_temperature(result(blend(STATUS_RING_WHITE, STATUS_RING_GREEN,
+                               g - limit / 3, limit / 3), RING_NORMAL, RING_ITEM_COUNT), temperature);
+        return with_temperature(result(toward_red(g - limit * 2 / 3, limit - limit * 2 / 3),
+                      RING_APPROACH, RING_ITEM_COUNT), temperature);
     }
     status_ring_result_t out = result(STATUS_RING_WHITE, RING_NORMAL, RING_ITEM_COUNT);
     bool stale = false;
@@ -112,6 +128,13 @@ status_ring_result_t status_ring_evaluate(const status_ring_input_t *in,
                     blend(STATUS_RING_WHITE, STATUS_RING_GREEN, v - cfg->rpm_green + 500, 500) : STATUS_RING_GREEN;
                 out = result(color, RING_NORMAL, i);
             }
+        } else if (in->temperature_managed && i < TEMP_CHANNEL_COUNT) {
+            // IAT is advisory only on pages that display it; never a global
+            // engine-overheat alarm. CLT/OIL were handled above.
+            if (i == RING_IAT && temperature.state == RING_NORMAL &&
+                in->temperature_level[i] != TEMP_NORMAL)
+                temperature = result(in->temperature_level[i] == TEMP_HOT ?
+                    STATUS_RING_ORANGE : STATUS_RING_YELLOW, RING_APPROACH, i);
         } else if (thr != INT16_MAX && thr > 0) {
             if (v >= thr) return result(STATUS_RING_RED, RING_ALARM, i);
             // The existing chart limits remain authoritative. Do not invent
@@ -126,7 +149,7 @@ status_ring_result_t status_ring_evaluate(const status_ring_input_t *in,
             }
         }
     }
-    if (stale) return result(in->initializing ? STATUS_RING_BLUE : STATUS_RING_LOST_COLOR,
-                             in->initializing ? RING_CONNECTING : RING_LOST, RING_ITEM_COUNT);
-    return out;
+    if (stale) return with_temperature(result(in->initializing ? STATUS_RING_BLUE : STATUS_RING_LOST_COLOR,
+                             in->initializing ? RING_CONNECTING : RING_LOST, RING_ITEM_COUNT), temperature);
+    return with_temperature(out, temperature);
 }

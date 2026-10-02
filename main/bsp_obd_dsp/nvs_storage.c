@@ -15,6 +15,7 @@
 #define KEY_CFG               "settings"
 #define KEY_CHART_ALARM       "chartalarm"
 #define KEY_STATUS_RING       "statusring"
+#define KEY_TEMP_ALERTS       "tempalert_v1" // one-time adoption of temperature advisory defaults
 static status_ring_config_t s_status_ring = {2400, 4000, 5500, 100, 100, {0,0,0}};
 #define CHART_ALARM_N         12   // = DISP_ITEM_COUNT (must stay in sync with disp_item_t in ui.c)
 #define CHART_ALARM_OFF       32767 // "off" sentinel for alarm thresholds (unreachable, avoids false alarms)
@@ -43,9 +44,13 @@ static nvs_stat_t     s_stat = {0};   // runtime-only stats, not persisted (rese
 static SemaphoreHandle_t s_mux;
 
 // Per-item alarm thresholds (raw units), index = disp_item_t: CLT,IAT,OIL,LOD,TPS,RPM,SPD,BAT,OIP,BKT,BST
-// By default only oil pressure (8.0bar = x10 80) and brake temp (600°C = x10 6000) keep an alarm; the rest are off.
+// StopWatch adds user advisory temperature limits; other boards retain their defaults.
 static int16_t s_chart_alarm[CHART_ALARM_N] = {
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    120, 80, 135, CHART_ALARM_OFF,
+#else
     CHART_ALARM_OFF, CHART_ALARM_OFF, CHART_ALARM_OFF, CHART_ALARM_OFF,
+#endif
     CHART_ALARM_OFF, CHART_ALARM_OFF, CHART_ALARM_OFF, CHART_ALARM_OFF,
     80, 6000, CHART_ALARM_OFF, CHART_ALARM_OFF
 };
@@ -99,6 +104,29 @@ esp_err_t nvs_storage_init(void)
             save_blob(NS_CFG, KEY_CHART_ALARM, s_chart_alarm, sizeof(s_chart_alarm));
         }
     }
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    {
+        nvs_handle_t h;
+        uint8_t adopted = 0;
+        if (nvs_open(NS_CFG, NVS_READWRITE, &h) == ESP_OK) {
+            nvs_get_u8(h, KEY_TEMP_ALERTS, &adopted);
+            if (adopted != 1) {
+                const int16_t defaults[3] = {120, 80, 135};
+                for (unsigned i = 0; i < 3; ++i)
+                    if (s_chart_alarm[i] == CHART_ALARM_OFF) s_chart_alarm[i] = defaults[i];
+                // Save limits and marker together. Explicit OFF selections made
+                // after adoption must remain OFF on subsequent boots.
+                esp_err_t saved = nvs_set_blob(h, KEY_CHART_ALARM, s_chart_alarm, sizeof(s_chart_alarm));
+                if (saved == ESP_OK) saved = nvs_set_u8(h, KEY_TEMP_ALERTS, 1);
+                if (saved == ESP_OK) saved = nvs_commit(h);
+                if (saved != ESP_OK) ESP_LOGW(TAG, "Temperature advisory defaults could not be saved");
+            }
+            nvs_close(h);
+        }
+        ESP_LOGI(TAG, "[TEMP] high limits: CLT=%d IAT=%d OIL=%d; warm offsets=5/20/10C; advisory only",
+                 s_chart_alarm[0], s_chart_alarm[1], s_chart_alarm[2]);
+    }
+#endif
     {   // Multi-gauge boot animation settings: same as above, load if present else keep defaults.
         nvs_handle_t h; size_t sz = sizeof(s_mg);
         if (nvs_open(NS_CFG, NVS_READONLY, &h) == ESP_OK) {

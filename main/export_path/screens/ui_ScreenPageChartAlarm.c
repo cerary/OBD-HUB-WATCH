@@ -2,11 +2,13 @@
 //  - Sets the alarm threshold for the data item currently shown on the chart (independent per item, stored in NVS chart_alarm)
 //  - Slider range = the item's raw range; labels share the dial's unit conversion.
 //    Pulling to the max step = OFF (alarm disabled).
-//  - When value >= threshold, that item's value turns red on all pages (see disp_item_set_value_color)
+//  - StopWatch CLT/IAT/OIL use confirmed two-stage temperature alerts; other
+//    items retain the existing single high threshold.
 //  - A gesture in any direction returns to the chart page (see ui_event_chart_alarm_background)
 
 #include "../ui.h"
 #include "bsp_obd_dsp/nvs_storage.h"
+#include "app_obd_dsp/temperature_alert_policy.h"
 
 #define CHART_ALARM_OFF 32767   // convention with nvs: 32767 = off
 
@@ -14,6 +16,16 @@ static lv_obj_t *s_alarm_slider = NULL;
 static lv_obj_t *s_alarm_value  = NULL;
 static uint8_t  s_alarm_item = 0;
 static int32_t  s_alarm_min_raw = 0, s_alarm_max_raw = 100;
+static lv_obj_t *s_temperature_hint;
+
+static bool temperature_item(void)
+{
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    return s_alarm_item < TEMP_CHANNEL_COUNT;
+#else
+    return false;
+#endif
+}
 
 static void alarm_update_value_label(int32_t sv)
 {
@@ -24,6 +36,16 @@ static void alarm_update_value_label(int32_t sv)
         char number[32];
         disp_item_format_value(number, sizeof(number), s_alarm_item, sv);
         lv_label_set_text_fmt(s_alarm_value, "%s %s", number, ui_disp_item_unit(s_alarm_item));
+    }
+    if (s_temperature_hint) {
+        temperature_limit_t limit = temperature_limit(s_alarm_item,
+            sv > s_alarm_max_raw ? CHART_ALARM_OFF : (int16_t)sv);
+        if (!limit.enabled) lv_label_set_text(s_temperature_hint, "Temperature alerts OFF");
+        else lv_label_set_text_fmt(s_temperature_hint,
+            "Yellow: %d 'C / %lus\n%s: %d 'C / %lus\nRecovery: -%u 'C",
+            limit.warm_c, (unsigned long)(limit.warm_hold_ms / 1000),
+            s_alarm_item == TEMP_IAT ? "Orange" : "Red", limit.hot_c,
+            (unsigned long)(limit.hot_hold_ms / 1000), limit.hysteresis_c);
     }
 }
 
@@ -38,6 +60,7 @@ static void on_alarm_slider_change(lv_event_t *e)
 
 void ui_ScreenPageChartAlarm_screen_init(void)
 {
+    s_temperature_hint = NULL;
     s_alarm_item = nvs_cfg_get()->chart_source_idx;
     if (s_alarm_item >= DISP_ITEM_COUNT) s_alarm_item = DISP_ITEM_CLT;
     const needle_scale_meta_t *scale = ui_disp_item_scale(s_alarm_item);
@@ -61,12 +84,17 @@ void ui_ScreenPageChartAlarm_screen_init(void)
     lv_obj_set_style_text_font(title, &ui_font_FontTypoderSize24, LV_PART_MAIN);
     lv_obj_set_style_text_color(title, lv_color_hex(ui_disp_item_color(s_alarm_item)), LV_PART_MAIN);
     lv_obj_align(title, LV_ALIGN_CENTER, 0, -96);
+    if (temperature_item()) {
+        lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+        lv_obj_align(title, LV_ALIGN_CENTER, 0, -125);
+    }
 
     // Current threshold value
     s_alarm_value = lv_label_create(ui_ScreenPageChartAlarm);
     lv_obj_set_style_text_font(s_alarm_value, &ui_font_FontTypoderSize36, LV_PART_MAIN);
     lv_obj_set_style_text_color(s_alarm_value, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
     lv_obj_align(s_alarm_value, LV_ALIGN_CENTER, 0, -30);
+    if (temperature_item()) lv_obj_align(s_alarm_value, LV_ALIGN_CENTER, 0, -65);
 
     // Slider: raw max+1 means OFF. Existing saved thresholds stay in raw units.
     s_alarm_slider = lv_slider_create(ui_ScreenPageChartAlarm);
@@ -83,6 +111,7 @@ void ui_ScreenPageChartAlarm_screen_init(void)
     lv_obj_set_ext_click_area(s_alarm_slider, 17);
 #endif
     lv_obj_align(s_alarm_slider, LV_ALIGN_CENTER, 0, 30);
+    if (temperature_item()) lv_obj_align(s_alarm_slider, LV_ALIGN_CENTER, 0, -5);
     lv_obj_set_style_bg_color(s_alarm_slider, lv_color_hex(0x333333), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(s_alarm_slider, 255, LV_PART_MAIN);
     lv_obj_set_style_bg_color(s_alarm_slider, lv_color_hex(ui_disp_item_color(s_alarm_item)), LV_PART_INDICATOR);
@@ -92,6 +121,13 @@ void ui_ScreenPageChartAlarm_screen_init(void)
     lv_obj_clear_flag(s_alarm_slider, LV_OBJ_FLAG_GESTURE_BUBBLE);   // dragging must not trigger the page back gesture
     lv_obj_add_event_cb(s_alarm_slider, on_alarm_slider_change, LV_EVENT_VALUE_CHANGED, NULL);
     ui_helpers_enable_option_feedback(s_alarm_slider);
+    if (temperature_item()) {
+        s_temperature_hint = lv_label_create(ui_ScreenPageChartAlarm);
+        lv_obj_set_style_text_font(s_temperature_hint, &lv_font_montserrat_14, LV_PART_MAIN);
+        lv_obj_set_style_text_color(s_temperature_hint, lv_color_hex(0xC0C0C0), LV_PART_MAIN);
+        lv_obj_set_style_text_align(s_temperature_hint, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+        lv_obj_align(s_temperature_hint, LV_ALIGN_CENTER, 0, 67);
+    }
     alarm_update_value_label(sv);
 
     lv_obj_t *hint = lv_label_create(ui_ScreenPageChartAlarm);
@@ -99,6 +135,7 @@ void ui_ScreenPageChartAlarm_screen_init(void)
     lv_obj_set_style_text_font(hint, &lv_font_montserrat_12, LV_PART_MAIN);
     lv_obj_set_style_text_color(hint, lv_color_hex(0x555555), LV_PART_MAIN);
     lv_obj_align(hint, LV_ALIGN_CENTER, 0, 110);
+    if (temperature_item()) lv_obj_align(hint, LV_ALIGN_CENTER, 0, 145);
 
     lv_obj_move_foreground(ring);   // bring the ring to the front
     lv_obj_add_event_cb(ui_ScreenPageChartAlarm, ui_event_chart_alarm_background, LV_EVENT_GESTURE, NULL);

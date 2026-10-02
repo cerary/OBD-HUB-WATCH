@@ -308,6 +308,92 @@ static void test_display_ranges(const char *folder)
     user_cfg.chart_source_idx=DISP_ITEM_CLT;ui_chart_apply_source();
     puts("PASS vehicle ranges: entry/update/arc/sweep, actual decimal ticks, raw chart/alarm units, fractional pointer precision and missing data");
 }
+static void thermal_sample(int clt, int iat, int oil)
+{
+    obd_data_set_rpm(800);obd_data_set_speed(0);
+    obd_data_set_coolant_temp(clt);obd_data_set_intake_temp(iat);obd_data_set_oil_temp(oil);
+    ui_status_ring_tick();
+}
+static uint32_t outer_color(lv_obj_t *screen)
+{
+    lv_obj_update_layout(screen);
+    for(unsigned i=0;i<lv_obj_get_child_cnt(screen);++i) {
+        lv_obj_t *child=lv_obj_get_child(screen,i);
+        if(lv_obj_check_type(child,&lv_img_class) && lv_obj_get_width(child)>440)
+            return lv_color_to32(lv_obj_get_style_img_recolor(child,0));
+        if(lv_obj_get_style_border_width(child,0)==10 && lv_obj_get_width(child)>440)
+            return lv_color_to32(lv_obj_get_style_border_color(child,0));
+    }
+    assert(!"Outer ring missing");return 0;
+}
+static void test_temperature_alerts(const char *folder)
+{
+    connected=true;sleeping=false;sweep=false;demo=false;
+    alarms[0]=120;alarms[1]=80;alarms[2]=135;
+    obd_data_invalidate_freshness();ui_status_ring_tick();
+    thermal_sample(115,60,125);lv_scr_load(ui_ScreenPageTemp);
+    int32_t displayed[3]={115,60,125};
+    assert(ui_status_ring_temperature_color(0,true)==0xFFFFFF);
+    for(unsigned t=0;t<10;++t){lv_tick_inc(1000);thermal_sample(115,60,125);}
+    for(unsigned i=0;i<3;++i) {
+        disp_item_update(&displayed[i],ui_LabelTempValue[i],i,displayed[i],true,15);
+        assert(lv_color_to32(lv_obj_get_style_text_color(ui_LabelTempValue[i],0))==
+            lv_color_to32(lv_color_hex(i==1?0xFFFFFF:STATUS_RING_YELLOW)));
+    }
+    render(folder,"temperature-warm");
+    lv_scr_load(ui_ScreenPageRpm);host_update(800);ui_status_ring_tick();
+    assert(outer_color(ui_ScreenPageRpm)==lv_color_to32(lv_color_hex(STATUS_RING_YELLOW)));
+    render(folder,"rpm-clt-warm");
+    lv_tick_inc(1000);thermal_sample(120,80,135);
+    for(unsigned t=0;t<3;++t){lv_tick_inc(1000);thermal_sample(120,80,135);}
+    assert(ui_status_ring_temperature_color(0,true)==STATUS_RING_RED);
+    assert(ui_status_ring_temperature_color(2,true)==STATUS_RING_RED);
+    assert(outer_color(ui_ScreenPageRpm)==lv_color_to32(lv_color_hex(STATUS_RING_RED)));
+    render(folder,"rpm-clt-high");
+    lv_scr_load(ui_ScreenPageTemp);
+    int32_t hot_values[3]={120,80,135};
+    for(unsigned i=0;i<3;++i) disp_item_update(&displayed[i],ui_LabelTempValue[i],i,hot_values[i],true,15);
+    render(folder,"temperature-high");
+    for(unsigned t=0;t<7;++t){lv_tick_inc(1000);thermal_sample(100,80,110);}
+    assert(ui_status_ring_temperature_color(1,true)==STATUS_RING_ORANGE);
+    assert(ui_status_ring_temperature_color(0,true)==0xFFFFFF);
+    lv_scr_load(ui_ScreenPageGForce);ui_status_ring_set_g_sample(0,true);lv_tick_inc(100);ui_status_ring_tick();
+    assert(outer_color(ui_ScreenPageGForce)==lv_color_to32(lv_color_hex(STATUS_RING_WHITE)));
+    lv_scr_load(ui_ScreenPageTemp);int32_t normal_values[3]={100,80,110};
+    for(unsigned i=0;i<3;++i) {
+        disp_item_set_text(ui_LabelTempValue[i],i,normal_values[i],true);
+        disp_item_set_value_color(ui_LabelTempValue[i],i,normal_values[i],true);
+    }
+    ui_status_ring_tick();assert(outer_color(ui_ScreenPageTemp)==lv_color_to32(lv_color_hex(STATUS_RING_ORANGE)));
+    render(folder,"temperature-iat-hot");
+    user_cfg.needle_source_idx=DISP_ITEM_IAT;ui_needle_apply_source();lv_scr_load(ui_ScreenPageNeedle);
+    disp_item_set_value_color(ui_NeedleValueLabel,DISP_ITEM_IAT,80,true);
+    assert(lv_color_to32(lv_obj_get_style_text_color(ui_NeedleValueLabel,0))==lv_color_to32(lv_color_hex(STATUS_RING_ORANGE)));
+
+    // Settings use the actual production slider and show derived warning limits.
+    for(unsigned item=0;item<3;++item) {
+        lv_scr_load(ui_ScreenPageRpm);
+        if(ui_ScreenPageChartAlarm)lv_obj_del(ui_ScreenPageChartAlarm);
+        user_cfg.chart_source_idx=item;ui_ScreenPageChartAlarm_screen_init();lv_scr_load(ui_ScreenPageChartAlarm);
+        lv_obj_t *slider=NULL,*hint=NULL;
+        for(unsigned i=0;i<lv_obj_get_child_cnt(ui_ScreenPageChartAlarm);++i) {
+            lv_obj_t *child=lv_obj_get_child(ui_ScreenPageChartAlarm,i);
+            if(lv_obj_check_type(child,&lv_slider_class))slider=child;
+            if(lv_obj_check_type(child,&lv_label_class)&&strstr(lv_label_get_text(child),"Yellow:"))hint=child;
+        }
+        assert(slider&&hint);
+        const char *expected[]={"Yellow: 115 'C / 10s","Yellow: 60 'C / 30s","Yellow: 125 'C / 10s"};
+        assert(strstr(lv_label_get_text(hint),expected[item]));
+        render(folder,item==0?"clt-alert-settings":item==1?"iat-alert-settings":"oil-alert-settings");
+        lv_slider_set_value(slider,lv_slider_get_max_value(slider),LV_ANIM_OFF);
+        lv_event_send(slider,LV_EVENT_VALUE_CHANGED,NULL);
+        assert(alarms[item]==INT16_MAX&&strcmp(lv_label_get_text(hint),"Temperature alerts OFF")==0);
+    }
+    ui_status_ring_tick();assert(ui_status_ring_temperature_color(1,true)==0xFFFFFF);
+    connected=false;ui_status_ring_tick();assert(ui_status_ring_temperature_color(0,true)==0xFFFFFF);
+    user_cfg.chart_source_idx=DISP_ITEM_CLT;user_cfg.needle_source_idx=DISP_ITEM_SPEED;connected=true;
+    puts("PASS temperature UI: stable digits recolor after confirmed duration; cross-page CLT/OIL, local IAT only, numeric/needle colors and native threshold/OFF settings");
+}
 int main(int argc,char **argv) {
     assert(argc==2);const char *folder=argv[1];lv_init();lv_tick_inc(1001);
     for(int i=0;i<RING_ITEM_COUNT;++i)alarms[i]=INT16_MAX;
@@ -357,6 +443,7 @@ int main(int argc,char **argv) {
     sleeping=true;render(folder,"rpm-cx-sleep");
     test_data_entry();
     test_display_ranges(folder);
+    test_temperature_alerts(folder);
     puts("Rendered all current carousel pages and settings from production LVGL/UI sources with illustrative inputs");
     return 0;
 }

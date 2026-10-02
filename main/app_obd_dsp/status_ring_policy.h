@@ -26,6 +26,8 @@ typedef struct {
     uint16_t g_centi;
     bool g_valid;
     uint32_t g_age_ms;
+    bool temperature_managed;
+    uint8_t temperature_level[3]; // temperature_level_t, confirmed by hold policy
 } status_ring_input_t;
 typedef struct {
     uint32_t color;
@@ -39,6 +41,8 @@ typedef struct {
 #define STATUS_RING_BLUE  0x55B8FFU
 #define STATUS_RING_LOST_COLOR 0xF579B8U
 #define STATUS_RING_SLEEP_COLOR 0x30343AU
+#define STATUS_RING_YELLOW 0xFFD166U
+#define STATUS_RING_ORANGE 0xFFAC45U
 
 status_ring_config_t status_ring_default_config(void);
 bool status_ring_config_valid(const status_ring_config_t *cfg);

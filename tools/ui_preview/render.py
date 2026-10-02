@@ -128,7 +128,7 @@ sources = [UI/'screens/ui_ScreenPageEasterEgg.c', UI/'screens/ui_ScreenPageLogo.
            UI/'screens/ui_ScreenPageMultiGauge.c', UI/'screens/ui_ScreenPageBLEScan.c',
            UI/'screens/ui_ScreenPageODBProtocal.c', UI/'screens/ui_ScreenPageGForce.c',
            UI/'ui_status_ring.c', UI/'ui_disp_item.c', UI/'ui_peak_marker.c', UI/'screens/ui_ScreenPagePeakSettings.c',
-           MAIN/'app_obd_dsp/peak_marker_policy.c',
+           MAIN/'app_obd_dsp/peak_marker_policy.c', MAIN/'app_obd_dsp/temperature_alert_policy.c',
            MAIN/'app_obd_dsp/status_ring_policy.c', MAIN/'app_obd_dsp/obd_data_cache.c', MAIN/'app_obd_dsp/vehicle_profiles.c',
            UI/'screens/ui_ScreenPageChartAlarm.c']
 sources += [UI/'ui_data_entry.c', UI/'ui_display_filter.c']

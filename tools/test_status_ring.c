@@ -2,6 +2,7 @@
 #include <assert.h>
 #include <limits.h>
 #include <stdio.h>
+#include "../main/app_obd_dsp/temperature_alert_policy.h"
 
 static status_ring_config_t cfg;
 static unsigned checks;
@@ -97,6 +98,31 @@ int main(void)
     assert(status_ring_evaluate(&in, &invalid).color == first.color);
     invalid = cfg; invalid.brightness = 0; assert(!status_ring_config_valid(&invalid));
     invalid = cfg; invalid.g_warn_centi = 49; assert(!status_ring_config_valid(&invalid));
+    in = input(); in.temperature_managed = true;
+    in.valid[RING_CLT] = in.valid[RING_IAT] = in.valid[RING_OIL] = true;
+    in.age_ms[RING_CLT] = in.age_ms[RING_IAT] = in.age_ms[RING_OIL] = 0;
+    in.value[RING_CLT] = 120; in.alarm[RING_CLT] = 120;
+    expect(&in, RING_NORMAL, STATUS_RING_WHITE); // no immediate legacy bypass
+    in.temperature_level[RING_CLT] = TEMP_WARM;
+    assert(expect(&in, RING_APPROACH, STATUS_RING_YELLOW).item == RING_CLT);
+    in.value[RING_RPM] = 5500;
+    assert(expect(&in, RING_ALARM, STATUS_RING_RED).item == RING_RPM);
+    in.temperature_level[RING_OIL] = TEMP_HOT;
+    assert(expect(&in, RING_ALARM, STATUS_RING_RED).item == RING_OIL);
+    in.page = RING_PAGE_STATIC; in.item_count = 0;
+    expect(&in, RING_NORMAL, STATUS_RING_WHITE);
+    in.page = RING_PAGE_G; in.g_valid = true; in.g_centi = 10;
+    assert(expect(&in, RING_ALARM, STATUS_RING_RED).item == RING_OIL);
+    in.temperature_level[RING_CLT] = in.temperature_level[RING_OIL] = TEMP_NORMAL;
+    in.temperature_level[RING_IAT] = TEMP_HOT;
+    expect(&in, RING_NORMAL, STATUS_RING_WHITE); // IAT is never a global alarm
+    in.page = RING_PAGE_ITEMS; in.items[0] = RING_IAT; in.item_count = 1;
+    assert(expect(&in, RING_APPROACH, STATUS_RING_ORANGE).item == RING_IAT);
+    in.temperature_level[RING_IAT] = TEMP_WARM;
+    expect(&in, RING_APPROACH, STATUS_RING_YELLOW);
+    in.age_ms[RING_IAT] = 15001; expect(&in, RING_LOST, STATUS_RING_LOST_COLOR);
+    in.sleeping = true; expect(&in, RING_SLEEP, STATUS_RING_SLEEP_COLOR);
+    in.sleeping = false; in.connected = false; expect(&in, RING_NO_DATA, STATUS_RING_SLEEP_COLOR);
     printf("PASS: %u status scenarios, repeated colors stable, invalid config falls back safely\n", checks);
     return 0;
 }

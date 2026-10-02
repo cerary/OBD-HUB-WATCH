@@ -62,7 +62,21 @@ int main(int argc,char **argv) {
         alarm[11]=!strcmp(mode,"custom")?1600:0;
         nvs_set_blob(1,"chartalarm",alarm,!strcmp(mode,"legacy")?22:24);
     }
+    if (!strcmp(mode,"temperature_migrate") || !strcmp(mode,"temperature_off")) {
+        int16_t alarm[12];for(int i=0;i<12;++i)alarm[i]=32767;
+        alarm[0]=118;alarm[8]=95;alarm[11]=1600;
+        nvs_set_blob(1,"chartalarm",alarm,sizeof(alarm));
+        if (!strcmp(mode,"temperature_off")) nvs_set_u8(1,"tempalert_v1",1);
+    }
     assert(nvs_storage_init()==ESP_OK);
+    if (!strcmp(mode,"temperature_migrate") || !strcmp(mode,"temperature_off")) {
+        bool adopted=!strcmp(mode,"temperature_migrate");
+        assert(nvs_chart_alarm_get(0)==118&&nvs_chart_alarm_get(8)==95&&nvs_chart_alarm_get(11)==1600);
+        assert(nvs_chart_alarm_get(1)==(adopted?80:32767));
+        assert(nvs_chart_alarm_get(2)==(adopted?135:32767));
+        uint8_t marker=0;assert(nvs_get_u8(1,"tempalert_v1",&marker)==ESP_OK&&marker==1);
+        puts("PASS: temperature adoption preserves custom/unrelated limits; explicit OFF remains OFF after adoption");return 0;
+    }
     if (!strcmp(mode,"afr")) {
         assert(nvs_cfg_get()->needle_source_idx==11&&nvs_cfg_get()->chart_source_idx==11);
         puts("PASS: persisted AFR source survives init in both needle and chart");return 0;
@@ -74,6 +88,7 @@ int main(int argc,char **argv) {
         printf("PASS: AFR alarm migration %s preserves other thresholds\n",mode);return 0;
     }
     assert(nvs_chart_alarm_get(11)==32767);
+    assert(nvs_chart_alarm_get(0)==120&&nvs_chart_alarm_get(1)==80&&nvs_chart_alarm_get(2)==135);
     assert(nvs_cfg_get()->device_role==0&&nvs_cfg_get()->touch_haptic_enabled==0);
     puts("PASS: fresh AFR alarm OFF; deferred empty-NVS defaults unchanged");
     cx_power_policy_t p;cx_policy_reset(&p,0);
