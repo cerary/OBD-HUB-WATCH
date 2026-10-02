@@ -4,13 +4,13 @@
   "date": "2026-10-02",
   "kind": "application-and-bootmedia",
   "app": {
-    "file": "OBD-HUB-WATCH-v1.0-20261002-vehicle-ranges-app.bin",
-    "size": 2594256,
-    "sha256": "2bb6ee34ee3145124aa193063bd2c6aa555733ae1e80ad0b00894b8901348ec6",
+    "file": "OBD-HUB-WATCH-v1.0-20261002-temperature-alerts-app.bin",
+    "size": 2596704,
+    "sha256": "221f9c9d1492dcc5ec0f7dc47a27d9913b0625872ce95efd81eb9c34856c9da8",
     "partition_size": 3145728,
     "flash_offset": "0x20000"
   },
-  "build_git_head": "75bd702f22405647b6f1319579cc8d73230128ec",
+  "build_git_head": "858943892c3e993953fa82290744b9264ded88d9",
   "build_dirty": true,
   "upstream_base": "528f54243ea1fe6f5e698291843ba3840e32efe5",
   "idf": "5.5.4",
@@ -29,10 +29,11 @@
     "led_control_no_fault": true,
     "selected_intro_mode_ok": true,
     "single_app_boot": true,
-    "fatal_errors": 0
+    "fatal_errors": 0,
+    "temperature_feature_started": true
   },
-  "settings_preserved": true,
-  "latest_physical_ui_acceptance": "Prior needle geometry accepted; vehicle ranges and decimal tick labels pending user confirmation",
+  "settings_preserved": false,
+  "latest_physical_ui_acceptance": "Prior needle geometry accepted; temperature alert behavior and display await user vehicle test",
   "live_lp_alert_validation": false,
   "rear_wireless_5v_physical_validation": false,
   "source_sha256": {
@@ -57,8 +58,10 @@
     "main/app_obd_dsp/peak_marker_policy.c": "62369171ae1d62891ad288e4e04178a5ccdd859e5145d476fead06135d23badf",
     "main/app_obd_dsp/peak_marker_policy.h": "c598fcd056da2a4059d6696255b6db11d4d6d751f30d955e50a5b3fb59d540b3",
     "main/app_obd_dsp/project_identity.h": "ad80035320532a282b539ddc1195f6b713331c061fb950a692a9b89d31be419c",
-    "main/app_obd_dsp/status_ring_policy.c": "8bd6361954b62ae0ae34e60ce66010eec8e2e27de988f892545a154ade4c95a5",
-    "main/app_obd_dsp/status_ring_policy.h": "1b098c2f7ea877f63d8df2a2b0069ed9ffbaef29a498b8092c707843f4ecab6d",
+    "main/app_obd_dsp/status_ring_policy.c": "7bafa4831effca1835ed2744033e4004f460ef2d2f3236ddc0dd17995b9aab20",
+    "main/app_obd_dsp/status_ring_policy.h": "cae613200f9970ba0e1482f6fa7d5badbf345a25c488c95954d05d2f458d012e",
+    "main/app_obd_dsp/temperature_alert_policy.c": "ff04e7fe46523f7481722f08a062419e8ebd99b81e66d245b9ba8951b85f32e2",
+    "main/app_obd_dsp/temperature_alert_policy.h": "7e83912c633f8bfac5965c24198f381d73da34ec9889cb6f49acb06db571730a",
     "main/app_obd_dsp/theme_mount.c": "d2f601812f480ef85c7a74f17b5d1472ddb906c397067f644ad71818e4b3c011",
     "main/app_obd_dsp/theme_mount.h": "7a55dad2e1b5eee29aa5eedf6aceaac61a7f2dd431a8c499cc879abe5a4a46b4",
     "main/app_obd_dsp/vehicle_custom_config.h": "87def5d2e7d5aec996618b73f9af9992b5cf061b5890af8e3449248a70568de2",
@@ -85,7 +88,7 @@
     "main/bsp_obd_dsp/lcd_driver/ST77916.h": "9723725f4b21cf50963d81bfa64b45e5c747e52f0cb9b98d49440877fd5948ee",
     "main/bsp_obd_dsp/lcd_driver/esp_lcd_st77916/esp_lcd_st77916.c": "45ff8a9223460aa053b6916c94d1a46622eda02c19046ce181e49d3c4ff66b22",
     "main/bsp_obd_dsp/lcd_driver/esp_lcd_st77916/esp_lcd_st77916.h": "21f444cdc25ed1ceec379fe91fb5fd09d31ef179a946c9a7bd6f67d2e3599bfa",
-    "main/bsp_obd_dsp/nvs_storage.c": "37cb75dcd2ece3141550f971a642e2663455aa4670d5051658accc4025bcab24",
+    "main/bsp_obd_dsp/nvs_storage.c": "3552430520b1be70874ed932da000a353deaa3e80c33c201ae58f99691a4395b",
     "main/bsp_obd_dsp/nvs_storage.h": "7b01ecfd045458a3d6d65d5aaac245be890c7df57e689a2a8d0b9245adac1fdb",
     "main/bsp_obd_dsp/racechrono_ble_diy.c": "5f02dec1d15046de1a7e6b4b4e34f93f69f70a16aae72c80d8a91f3aa3660b1c",
     "main/bsp_obd_dsp/racechrono_ble_diy.h": "5903b5072b74da9cf5ed6b401b2d0b07dc92610b62eafea677f71ad2ac0e6860",
@@ -114,7 +117,7 @@
     "main/export_path/images/ui_img_mini_jcw.c": "9de067941967624d995604b950f75e8227f1ffd9c2d18440a8a1962db0f9e627",
     "main/export_path/images/ui_img_pngblackear_png.c": "2bcea27e288173111e3fe56dbbc639198dc18637d2f6394653b66b88874170ef",
     "main/export_path/screens/ui_ScreenPageBLEScan.c": "6cb4892c26b9ec6b58dc7b172ef1093093289991ecd040916f2ee030955a5b7a",
-    "main/export_path/screens/ui_ScreenPageChartAlarm.c": "2ccc4d626341f38a161a1e78b067475581e58efc19169c083e043dcb0dca0980",
+    "main/export_path/screens/ui_ScreenPageChartAlarm.c": "479bdf473d117544feae6c14a113903fc463155479ff395778740045521cb9d4",
     "main/export_path/screens/ui_ScreenPageChartConfig.c": "cfc13eb362baa4359faba4623eb22aff7d1471a3634f517007b46fff835e548b",
     "main/export_path/screens/ui_ScreenPageCxSettings.c": "23eebdf710a523702575a5c67ad97751e0c484a685568dd5498f6de05f970f75",
     "main/export_path/screens/ui_ScreenPageEasterEgg.c": "124dcd52082d3c3f32509b2a31c4aaf0f1e088f62ac4b052ec6bbe47f1396d75",
@@ -148,7 +151,7 @@
     "main/export_path/ui.h": "86b90426439f41bf2d8a053babbb54500edbce45b648b7ed9f8441b680f61262",
     "main/export_path/ui_data_entry.c": "46a7dd5e0a31013daca031f5e4a42fe112c1f6f3229cc850a2f58a6f8b92721b",
     "main/export_path/ui_data_entry.h": "3032e722a20da0a8f3e25d42ae77d8540565ff3b9cea7afbd4221da3c67034e2",
-    "main/export_path/ui_disp_item.c": "9ab1cfa6912ecd4704610c525d1473e9a62cda9a53dc45bfbdc283c80030a41d",
+    "main/export_path/ui_disp_item.c": "7b42a729610ffd914ec687a15eb63248eab45cb0b76671b7b50a44071427c252",
     "main/export_path/ui_disp_item.h": "ff2deb99fbb8c05cd59b28dc745d10be7f3ac922563bce10e3d237472da43295",
     "main/export_path/ui_display_filter.c": "86b5f9fa862e9b26c9127e05e5aca26a3404d48a586d9203bc9df6e9c5c4f280",
     "main/export_path/ui_display_filter.h": "efc18920a368790665d62d723d1574838e3fcca54754510dd01d147134cb2c50",
@@ -159,8 +162,8 @@
     "main/export_path/ui_helpers.h": "3ff14f799528cdae7b0b6d0b465e1cdcbbd88adbcf836ef171d3b30a6b2275f5",
     "main/export_path/ui_peak_marker.c": "73de579e884fb4abf7549338abad6b789ae697eacf9fe57cd16816a287d6a7c4",
     "main/export_path/ui_peak_marker.h": "500443092b1a6b69b95e4f18acaf4bcd35e006f1dbce8d72866e751255451046",
-    "main/export_path/ui_status_ring.c": "765fbdafeb09ffc70036667633c8de5803f60dfe5ef574cfe4753f1d9a4c4d98",
-    "main/export_path/ui_status_ring.h": "6195ed837007c589fcfd0194eacd74e2613eab0e26d056507a842492f23d28a9",
+    "main/export_path/ui_status_ring.c": "a986f0a9808da1e0fd705c7e5ff2a812e827b7729b16a5ab62320799a322fca9",
+    "main/export_path/ui_status_ring.h": "d4cb9f19d085cf205a69192c36b7b4df2573d47981d80fc566bd9d845fde6583",
     "main/export_path/ui_theme.c": "8c1d25258da53c2a423c8bede98a5027d844b143e6e636ccc236ae1f4b936d4b",
     "main/export_path/ui_theme.h": "1de8de371cddab724f4a61ed121d699dcfe4f263b4e5a36969e11e2881b312a2",
     "main/export_path/ui_theme_generated.c": "3865484b30a6fcbd4dfc6595b7a12f544e23cd5f64cc7264a98a57b8d22c5140",
@@ -179,9 +182,9 @@
     "sdkconfig.stopwatch": "8b7245ec0a0eff0cfedb11ba68bf8d914b25182a1c6783502c21d886bece4f24"
   },
   "source_hash_format": "SHA-256 of source bytes with CRLF normalized to LF",
-  "build_project_version": "75bd702-dirty",
-  "source_commit": "8d331b2f1c13d45d4c0bad58be4c7e33b9a2fb2f",
-  "flashed_at": "2026-10-02T18:19:01.200245+08:00",
+  "build_project_version": "8589438-dirty",
+  "source_commit": "ddc8296d4527c9628a26f5fc028c35e17ed6413a",
+  "flashed_at": "2026-10-02T19:13:49.707966+08:00",
   "charge_led_boot_validation": "CHRG active for 5243ms before ON; five short charging pulses ignored; OFF 8ms after release",
   "charge_led_usb_charging_on_readback_observed": true,
   "charge_led_visible_behavior_validation": false,
@@ -192,9 +195,9 @@
     "main/stopwatch/charge_led_policy.h"
   ],
   "previous_app": {
-    "file": "OBD-HUB-WATCH-v1.0-20261002-needle-dial-short-app.bin",
-    "size": 2593856,
-    "sha256": "544c637517114448b058604b1c88c5d0ea7e0c611b4f68b62df20436ea9b99a8",
+    "file": "OBD-HUB-WATCH-v1.0-20261002-vehicle-ranges-app.bin",
+    "size": 2594256,
+    "sha256": "2bb6ee34ee3145124aa193063bd2c6aa555733ae1e80ad0b00894b8901348ec6",
     "partition_size": 3145728,
     "flash_offset": "0x20000"
   },
@@ -306,5 +309,49 @@
     "range_meaning": "Rounded display ranges; not measured ECU limits",
     "boost_acquisition": "Unchanged one-byte PID 010B MAP minus fixed 100 kPa; displayed gauge pressure limited to 1.5 bar",
     "tested_app_sha256": "2bb6ee34ee3145124aa193063bd2c6aa555733ae1e80ad0b00894b8901348ec6"
+  },
+  "settings_migration": "One-time adoption of CLT/IAT/OIL defaults; all other logical NVS keys preserved",
+  "temperature_alert_validation": {
+    "default_high_limits_c": [
+      120,
+      80,
+      135
+    ],
+    "installed_high_limits_c": [
+      120,
+      80,
+      135
+    ],
+    "warm_offsets_c": [
+      5,
+      20,
+      10
+    ],
+    "warm_hold_seconds": [
+      10,
+      30,
+      10
+    ],
+    "hot_hold_seconds": [
+      3,
+      10,
+      3
+    ],
+    "recovery_hysteresis_c": [
+      3,
+      5,
+      5
+    ],
+    "clt_oil_global": true,
+    "iat_local_only": true,
+    "fresh_sample_confirmation": true,
+    "expired_and_disconnected_reset": true,
+    "actual_lvgl_tests": "passed",
+    "policy_and_nvs_tests": "passed",
+    "independent_flash_verify": true,
+    "unrelated_nvs_preserved_after_boot": true,
+    "physical_vehicle_test": "pending",
+    "thresholds_are_factory_ecu_limits": false,
+    "tested_app_sha256": "221f9c9d1492dcc5ec0f7dc47a27d9913b0625872ce95efd81eb9c34856c9da8"
   }
 }
