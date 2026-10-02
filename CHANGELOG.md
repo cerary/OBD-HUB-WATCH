@@ -4,9 +4,18 @@ Newest first. Entries cover behaviour and flashing changes; pure refactors and
 comment cleanups are left to the git history.
 最新的在最上面。这里只记录行为变化和烧录方式变化，纯重构和注释整理请查 git 历史。
 
+## 2026-10-02 — StopWatch 操作提示音与音量滑条
+
+- 修复声音写入 DMA 后立即关功放、音量过低及初始化失败后不重试的问题；双声道输出相同的 80ms / 1600Hz 提示音，加入起止渐变和尾部静音排空。
+- 回读音频电源、功放和 ES8311 寄存器，并检查非零 DMA 发送；音频任务与振动时长分开。
+- 实物已确认 SOUND 开启有声、关闭无声。根据声音偏小的反馈，进一步提高 codec 音量至 100、PCM 峰值至 18000，并把音调改为 1600Hz，用户已确认响度足够。
+- FEEDBACK 新增 0–100% 音量滑条，默认 60%；0% 静音、100% 保持已验收响度，松手保存与试听，重启保留。SOUND 关闭时滑条变暗；独立 NVS 键避免改变已有设置布局。
+- 配置回归覆盖默认值、0/100、重新加载、无效值与写入失败，已有设置未改变；实际 LVGL 渲染和固件启动校验通过，滑条实物调节 / 静音验收通过，并验证最后选择的 10% 可在硬件重启后保留。
+- 详情及验证边界见 [操作提示音](docs/SOUND-FEEDBACK.md)。此前 GitHub 发布快照保留在 `stopwatch-20261002`，不替换其附件。
+
 ## 2026-10-02 — OBD HUB WATCH / StopWatch V1.0
 
-本次更新汇总前次 GitHub 同步后的改动。当前已刷应用版本为 `73e5883`，
+本次更新汇总前次 GitHub 同步后的改动。该次发布应用版本为 `73e5883`，
 适用硬件 **M5Stack StopWatch C152 V1.0**；完整说明及验证范围见
 [本次发布说明](docs/releases/2026-10-02-stopwatch.md)。
 

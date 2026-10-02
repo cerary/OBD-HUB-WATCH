@@ -4,14 +4,14 @@
   "date": "2026-10-02",
   "kind": "application-and-bootmedia",
   "app": {
-    "file": "OBD-HUB-WATCH-v1.0-20261002-gear-fix-app.bin",
-    "size": 2597488,
-    "sha256": "8a8d29011469562e16654a8457cbc0ec3deb045ba5b04d6625bbd51a1c27a050",
+    "file": "OBD-HUB-WATCH-v1.0-20261002-sound-volume-app.bin",
+    "size": 2602832,
+    "sha256": "74b4daee4f64c37b3a155226cf7dd0b8faef8e865588dd5b0b0721f9107da7db",
     "partition_size": 3145728,
     "flash_offset": "0x20000"
   },
-  "build_git_head": "73e5883fd4ae1045962642df69adfdaee072faa8",
-  "build_dirty": false,
+  "build_git_head": "01e2581bbaff0dd25b0625bd0574a02553d35487",
+  "build_dirty": true,
   "upstream_base": "528f54243ea1fe6f5e698291843ba3840e32efe5",
   "idf": "5.5.4",
   "lvgl": "8.4.0",
@@ -89,8 +89,8 @@
     "main/bsp_obd_dsp/lcd_driver/ST77916.h": "9723725f4b21cf50963d81bfa64b45e5c747e52f0cb9b98d49440877fd5948ee",
     "main/bsp_obd_dsp/lcd_driver/esp_lcd_st77916/esp_lcd_st77916.c": "45ff8a9223460aa053b6916c94d1a46622eda02c19046ce181e49d3c4ff66b22",
     "main/bsp_obd_dsp/lcd_driver/esp_lcd_st77916/esp_lcd_st77916.h": "21f444cdc25ed1ceec379fe91fb5fd09d31ef179a946c9a7bd6f67d2e3599bfa",
-    "main/bsp_obd_dsp/nvs_storage.c": "3552430520b1be70874ed932da000a353deaa3e80c33c201ae58f99691a4395b",
-    "main/bsp_obd_dsp/nvs_storage.h": "7b01ecfd045458a3d6d65d5aaac245be890c7df57e689a2a8d0b9245adac1fdb",
+    "main/bsp_obd_dsp/nvs_storage.c": "e090481812fffbdd8214a2dc97ca5107ead6430700942d4a71de7939d1b1bf5d",
+    "main/bsp_obd_dsp/nvs_storage.h": "6ca4e55fb061ef4c6a757c2b973a302d3c47a99a6fc1a4e167a00a1de359300a",
     "main/bsp_obd_dsp/racechrono_ble_diy.c": "5f02dec1d15046de1a7e6b4b4e34f93f69f70a16aae72c80d8a91f3aa3660b1c",
     "main/bsp_obd_dsp/racechrono_ble_diy.h": "5903b5072b74da9cf5ed6b401b2d0b07dc92610b62eafea677f71ad2ac0e6860",
     "main/bsp_obd_dsp/rs485_brake_temp.c": "736e036c23542eb9397765233a0f5ca513e2bf033f4c00da297e8e898c93eb33",
@@ -123,7 +123,7 @@
     "main/export_path/screens/ui_ScreenPageCxSettings.c": "23eebdf710a523702575a5c67ad97751e0c484a685568dd5498f6de05f970f75",
     "main/export_path/screens/ui_ScreenPageEasterEgg.c": "124dcd52082d3c3f32509b2a31c4aaf0f1e088f62ac4b052ec6bbe47f1396d75",
     "main/export_path/screens/ui_ScreenPageExpression.c": "008ee35bf76f80a1a999250eb23cac08c6888ee1b564af1e7614495b588c5459",
-    "main/export_path/screens/ui_ScreenPageFeedback.c": "b70e4fce364ea5548ece8b33f99ed2af3c453c3bf80e38f0a1d7960c72f78567",
+    "main/export_path/screens/ui_ScreenPageFeedback.c": "5346fc244089e088c7538d1cd0c0287b6d5e2a3316dcd7a5e2fbbb67c846a990",
     "main/export_path/screens/ui_ScreenPageGForce.c": "7f5876aeeee18e78995a57a4374d442ca37fe3c053739b4066496155464fc31e",
     "main/export_path/screens/ui_ScreenPageGear.c": "7c310a4512f0abd91e0fa1277ea15df9db1519c42db6ed220db13c3d01d985c4",
     "main/export_path/screens/ui_ScreenPageInfo.c": "4534e08c0e7fd8ed9a8d0f80048a732fa9821156f8d9086f7bfade1995cfcef1",
@@ -174,7 +174,7 @@
     "main/stopwatch/charge_led_policy.h": "a2d75eb4f7ccb5781db39716f80ae8fd9d39c9523306817d2af2b18cfdca336b",
     "main/stopwatch/cst820.cpp": "7b39e1944843c6a3ff4df3a136c091f4db239a382d019389c074705d859b8408",
     "main/stopwatch/cst820.h": "a3cf74c35316ede0f06cee5e3420c314e620129fcc84d3379d1cdbaa02250872",
-    "main/stopwatch/stopwatch_board.cpp": "601744ff782e7e348ed8103ef459725e9f212af5dd6091b86afcb58b278f0681",
+    "main/stopwatch/stopwatch_board.cpp": "040b9670f2e9538615146875d2801ca38d99aaa92b68d3c2fa99282576a82941",
     "main/stopwatch/stopwatch_board.h": "195fd55cac7f00605fd2c25883b855218e0b4ae5098641b256c1218c7c7bc1a4",
     "main/theme_engine/PROTECTED_PAGES.md": "4d341513021a4e87da645da5b3e0bd4c4548840f3936f70bc14c47fc129219b6",
     "main/theme_engine/theme_interface.h": "e80093229710601a570026d352b10974a51de2e18d3a9850df81c2f671083712",
@@ -183,9 +183,9 @@
     "sdkconfig.stopwatch": "8b7245ec0a0eff0cfedb11ba68bf8d914b25182a1c6783502c21d886bece4f24"
   },
   "source_hash_format": "SHA-256 of source bytes with CRLF normalized to LF",
-  "build_project_version": "73e5883",
-  "source_commit": "73e5883fd4ae1045962642df69adfdaee072faa8",
-  "flashed_at": "2026-10-02T19:51:52.050354+08:00",
+  "build_project_version": "stopwatch-20261002-5-g01e2581-d",
+  "source_commit": "01e2581bbaff0dd25b0625bd0574a02553d35487",
+  "flashed_at": "2026-10-02T21:51:27.153380+08:00",
   "charge_led_boot_validation": "CHRG active for 5243ms before ON; five short charging pulses ignored; OFF 8ms after release",
   "charge_led_usb_charging_on_readback_observed": true,
   "charge_led_visible_behavior_validation": false,
@@ -196,9 +196,9 @@
     "main/stopwatch/charge_led_policy.h"
   ],
   "previous_app": {
-    "file": "OBD-HUB-WATCH-v1.0-20261002-temperature-alerts-app.bin",
-    "size": 2596704,
-    "sha256": "221f9c9d1492dcc5ec0f7dc47a27d9913b0625872ce95efd81eb9c34856c9da8",
+    "file": "OBD-HUB-WATCH-v1.0-20261002-sound-fix-app.bin",
+    "size": 2601440,
+    "sha256": "9b9040702e926fd8488523eab9ab0b83c57905352cb9cff52f6feb8ffd4a7939",
     "partition_size": 3145728,
     "flash_offset": "0x20000"
   },
@@ -377,5 +377,442 @@
     "jcw_parameters": true,
     "display_ready": true,
     "fatal_error_free": true
-  }
+  },
+  "sound_feedback_validation": {
+    "source_commit": "01e2581bbaff0dd25b0625bd0574a02553d35487",
+    "sample_rate_hz": 44100,
+    "tone_ms": 80,
+    "frequency_hz": 1600,
+    "volume": 100,
+    "pcm_peak": 18000,
+    "channels": 2,
+    "dma_frames": 256,
+    "dma_buffers": 4,
+    "silence_drain_samples": 1280,
+    "fade_ms": 3,
+    "power_gate": "IOE10 and GPIO14",
+    "observed_original_source_issues": [
+      "PA disabled immediately after DMA write",
+      "volume 18 mapped to approximately -41 dB"
+    ],
+    "build_passed": true,
+    "existing_host_regressions_passed": true,
+    "flash_verified": true,
+    "boot_verified": true,
+    "all_nvs_keys_preserved": true,
+    "unchanged_nvs_key_count": 22,
+    "tested_app_sha256": "74b4daee4f64c37b3a155226cf7dd0b8faef8e865588dd5b0b0721f9107da7db",
+    "audible_physical_test": "passed",
+    "user_volume_default_percent": 60,
+    "user_volume_range_percent": [
+      0,
+      100
+    ],
+    "volume_control": "PCM amplitude scaled on feedback task; codec fixed at 100",
+    "current_slider_physical_test": "passed",
+    "previous_r4_loudness_test": "passed",
+    "interaction_log_cues": 23,
+    "codec_and_pa_readback": {
+      "cue_volumes": [
+        [
+          "60",
+          "10800"
+        ],
+        [
+          "60",
+          "10800"
+        ],
+        [
+          "60",
+          "10800"
+        ],
+        [
+          "60",
+          "10800"
+        ],
+        [
+          "60",
+          "10800"
+        ],
+        [
+          "60",
+          "10800"
+        ],
+        [
+          "60",
+          "10800"
+        ],
+        [
+          "60",
+          "10800"
+        ],
+        [
+          "60",
+          "10800"
+        ],
+        [
+          "60",
+          "10800"
+        ],
+        [
+          "60",
+          "10800"
+        ],
+        [
+          "24",
+          "4320"
+        ],
+        [
+          "24",
+          "4320"
+        ],
+        [
+          "100",
+          "18000"
+        ],
+        [
+          "8",
+          "1440"
+        ],
+        [
+          "8",
+          "1440"
+        ],
+        [
+          "8",
+          "1440"
+        ],
+        [
+          "18",
+          "3240"
+        ],
+        [
+          "29",
+          "5220"
+        ],
+        [
+          "29",
+          "5220"
+        ],
+        [
+          "29",
+          "5220"
+        ],
+        [
+          "29",
+          "5220"
+        ],
+        [
+          "16",
+          "2880"
+        ]
+      ],
+      "codec_ready": [
+        "[AUDIO] ES8311 ready: 44100Hz stereo vol=100 DMA=4x256; cue=80ms freq=1600Hz peak=18000 DAC31=00 DAC32=C6 power=1/1\u001b[0m"
+      ],
+      "cue_count": 23,
+      "cues": [
+        [
+          "3",
+          "58194",
+          "144",
+          "1280",
+          "verified"
+        ],
+        [
+          "3",
+          "59622",
+          "146",
+          "1280",
+          "verified"
+        ],
+        [
+          "3",
+          "63632",
+          "151",
+          "1280",
+          "verified"
+        ],
+        [
+          "3",
+          "62433",
+          "148",
+          "1280",
+          "verified"
+        ],
+        [
+          "3",
+          "63280",
+          "149",
+          "1280",
+          "verified"
+        ],
+        [
+          "3",
+          "62787",
+          "149",
+          "1280",
+          "verified"
+        ],
+        [
+          "3",
+          "61517",
+          "149",
+          "1280",
+          "verified"
+        ],
+        [
+          "3",
+          "60019",
+          "147",
+          "1280",
+          "verified"
+        ],
+        [
+          "1",
+          "62314",
+          "149",
+          "1280",
+          "verified"
+        ],
+        [
+          "1",
+          "59896",
+          "146",
+          "1280",
+          "verified"
+        ],
+        [
+          "1",
+          "58537",
+          "146",
+          "1280",
+          "verified"
+        ],
+        [
+          "2",
+          "58894",
+          "145",
+          "1280",
+          "verified"
+        ],
+        [
+          "1",
+          "62435",
+          "149",
+          "1280",
+          "verified"
+        ],
+        [
+          "2",
+          "59916",
+          "145",
+          "1280",
+          "verified"
+        ],
+        [
+          "2",
+          "61414",
+          "147",
+          "1280",
+          "verified"
+        ],
+        [
+          "1",
+          "62129",
+          "148",
+          "1280",
+          "verified"
+        ],
+        [
+          "1",
+          "59847",
+          "146",
+          "1280",
+          "verified"
+        ],
+        [
+          "2",
+          "61252",
+          "148",
+          "1280",
+          "verified"
+        ],
+        [
+          "2",
+          "63666",
+          "150",
+          "1280",
+          "verified"
+        ],
+        [
+          "1",
+          "60589",
+          "147",
+          "1280",
+          "verified"
+        ],
+        [
+          "1",
+          "59443",
+          "145",
+          "1280",
+          "verified"
+        ],
+        [
+          "1",
+          "60977",
+          "147",
+          "1280",
+          "verified"
+        ],
+        [
+          "2",
+          "58356",
+          "145",
+          "1280",
+          "verified"
+        ]
+      ],
+      "audio_errors": [],
+      "tx_completed": [
+        [
+          "17",
+          "14"
+        ],
+        [
+          "17",
+          "14"
+        ],
+        [
+          "17",
+          "14"
+        ],
+        [
+          "17",
+          "14"
+        ],
+        [
+          "17",
+          "14"
+        ],
+        [
+          "17",
+          "14"
+        ],
+        [
+          "17",
+          "14"
+        ],
+        [
+          "17",
+          "14"
+        ],
+        [
+          "17",
+          "14"
+        ],
+        [
+          "17",
+          "14"
+        ],
+        [
+          "17",
+          "14"
+        ],
+        [
+          "17",
+          "14"
+        ],
+        [
+          "17",
+          "14"
+        ],
+        [
+          "17",
+          "14"
+        ],
+        [
+          "17",
+          "14"
+        ],
+        [
+          "17",
+          "14"
+        ],
+        [
+          "17",
+          "14"
+        ],
+        [
+          "17",
+          "14"
+        ],
+        [
+          "17",
+          "14"
+        ],
+        [
+          "17",
+          "14"
+        ],
+        [
+          "17",
+          "14"
+        ],
+        [
+          "17",
+          "14"
+        ],
+        [
+          "17",
+          "14"
+        ]
+      ],
+      "nonzero_pcm_sent": true,
+      "all_amp_off_verified": true,
+      "fatal_error_free": true,
+      "physical_audibility": "passed",
+      "volume_adjustment_physical_test": "passed",
+      "zero_percent_mute": "user confirmed",
+      "maximum_loudness": "user confirmed",
+      "volume_retention": {
+        "volume_percent": 10,
+        "checks": {
+          "saved_in_nvs": true,
+          "reloaded_after_restart": true,
+          "elf_hash_matches": true,
+          "display_ready": true,
+          "fatal_error_free": true
+        },
+        "physical_slider_test": "passed",
+        "user_feedback": "Normal; volume can be adjusted",
+        "app_sha256": "74b4daee4f64c37b3a155226cf7dd0b8faef8e865588dd5b0b0721f9107da7db"
+      }
+    },
+    "first_candidate_physical_audibility": "failed",
+    "diagnostic_changes": [
+      "stereo duplicated PCM",
+      "volume 100 and PCM peak 18000 and frequency 1600",
+      "80ms tone",
+      "50ms PA settle",
+      "power/GPIO/codec readback",
+      "nonzero DMA completion observation"
+    ],
+    "audio_errors": [],
+    "volume_retention": {
+      "volume_percent": 10,
+      "checks": {
+        "saved_in_nvs": true,
+        "reloaded_after_restart": true,
+        "elf_hash_matches": true,
+        "display_ready": true,
+        "fatal_error_free": true
+      },
+      "physical_slider_test": "passed",
+      "user_feedback": "Normal; volume can be adjusted",
+      "app_sha256": "74b4daee4f64c37b3a155226cf7dd0b8faef8e865588dd5b0b0721f9107da7db"
+    }
+  },
+  "latest_sound_physical_acceptance": "User confirmed mute / lower / maximum volume and normal adjustment; hardware restart reloaded saved 10 percent"
 }

@@ -5,8 +5,8 @@
 
 把 M5Stack StopWatch 改造成带电池、触摸与实体按键的圆形车载仪表。当前维护目标是 **StopWatch V1.0**，主要以 MINI JCW F56 8AT 的 OBD 实车测试为依据。
 
-**最新更新：2026-10-02** — 档位估算修复、温度两级提醒、JCW 量程和指针布局、切页首帧、充电灯稳定确认及原生 JCW 动画。
-见[完整更新说明](docs/releases/2026-10-02-stopwatch.md)、[更新日志](CHANGELOG.md)和[当前固件](firmware/README.md)；[GitHub Release](https://github.com/cerary/OBD-HUB-WATCH/releases/tag/stopwatch-20261002) 提供当前应用、动画与校验附件。
+**最新更新：2026-10-02** — 操作提示音调通及可保存音量滑条、档位估算修复、温度两级提醒、JCW 量程和指针布局、切页首帧、充电灯稳定确认及原生 JCW 动画。
+见[完整更新说明](docs/releases/2026-10-02-stopwatch.md)、[更新日志](CHANGELOG.md)和[当前固件](firmware/README.md)；[GitHub Release](https://github.com/cerary/OBD-HUB-WATCH/releases/tag/stopwatch-20261002) 保留本次提示音修复之前的应用、动画与校验附件。提示音说明见[声音反馈](docs/SOUND-FEEDBACK.md)。
 
 | 项目 | 当前标准 |
 | --- | --- |

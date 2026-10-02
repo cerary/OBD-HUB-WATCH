@@ -2,7 +2,9 @@
 
 Hardware: **M5Stack StopWatch C152 V1.0**. See [firmware overview](../README.md), [manifest](manifest.json) and [checksums](SHA256SUMS).
 
-Use the supplied `OBD-HUB-WATCH-v1.0-20261002-gear-fix-app.bin` only with the matching device partition layout. This application was independently verified and boot-checked on 2026-10-02; it is not an empty-board full image. The embedded build version is `73e5883`, with code recorded at commit `73e5883`; SHA-256 and source file hashes identify the installed code.
+Use the supplied `OBD-HUB-WATCH-v1.0-20261002-sound-volume-app.bin` only with the matching device partition layout. This application was independently verified and boot-checked on 2026-10-02; it is not an empty-board full image. The embedded build version is `stopwatch-20261002-5-g01e2581-d`, with application code recorded at commit `01e2581`; SHA-256 and source file hashes identify the installed code.
+
+Sound feedback uses an 80ms 1600Hz stereo cue, codec volume 100 and PCM peak 18000, with 3ms fades and a DMA silence drain before the PA turns off. SOUND ON/OFF and maximum loudness were physically accepted on the preceding R4 build. The VOLUME slider scales PCM from silent (0%) to that maximum (100%), defaults to 60%, saves on release and survives restart. Storage regression tests and production LVGL rendering passed; physical volume/mute acceptance passed, and hardware restart reloaded the saved 10% selection. See [sound validation](../../docs/SOUND-FEEDBACK.md).
 
 The gear estimator now compares consistent total ratios without duplicating final drive. The JCW profile uses the owner-confirmed 215/40R18 PS5 nominal radius of 0.3146 m, with unsmoothed speed input. Unmatched ratios hold the old gear for no more than 1 second, then show `--` and an empty arc; disconnect, stale data and vehicle changes reset estimation. Independent circumference tests cover 997 cases across 18 actual profiles, plus production LVGL tests. Physical shift accuracy remains pending; stationary N is only a placeholder. All 22 logical NVS keys and JCW bootmedia were verified preserved. See [gear behavior and limitations](../../docs/VEHICLE-RANGES.md).
 
