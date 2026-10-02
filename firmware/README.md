@@ -1,8 +1,12 @@
 # Firmware — StopWatch C152 V1.0
 
-The current application is [stopwatch/OBD-HUB-WATCH-v1.0-20261002-temperature-alerts-app.bin](stopwatch/OBD-HUB-WATCH-v1.0-20261002-temperature-alerts-app.bin), with [manifest](stopwatch/manifest.json) and [SHA-256](stopwatch/SHA256SUMS).
+The current application is [stopwatch/OBD-HUB-WATCH-v1.0-20261002-gear-fix-app.bin](stopwatch/OBD-HUB-WATCH-v1.0-20261002-gear-fix-app.bin), with [manifest](stopwatch/manifest.json) and [SHA-256](stopwatch/SHA256SUMS).
 
 It is the exact app independently verified and boot-checked on 2026-10-02. It includes all README UI changes. The UI / vehicle acceptance test is still in progress; real LP ALERT delivery and rear wireless-5V wake remain pending.
+
+Gear estimation now uses consistent total ratios and the owner's 215/40R18 PS5 nominal tire radius of 0.3146 m. The ratio uses speed before display smoothing, and unmatched gears expire to `--` after 1 second. Independent circumference tests covered 997 cases across 18 profiles; actual LVGL, flash verification and startup checks passed. All 22 logical NVS keys and the JCW boot-animation resource were preserved. Actual shift accuracy still needs vehicle comparison; stationary N remains a placeholder.
+
+The immediately preceding [temperature application](stopwatch/OBD-HUB-WATCH-v1.0-20261002-temperature-alerts-app.bin) and its checksum remain available for rollback.
 
 The needle dial is 426px across with zero widget padding, leaving about 5px inside the status ring. Numerals use the 24-size project font; major ticks are 3×14px and minor ticks 2×9px, with separate grey levels. The needle is shortened by 9px to leave 5px inside the major ticks. A rendered alignment frame has five blank pixel rows between tip and tick; the user confirmed the corrected needle length and spacing are suitable, with normal display.
 

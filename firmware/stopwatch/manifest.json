@@ -4,14 +4,14 @@
   "date": "2026-10-02",
   "kind": "application-and-bootmedia",
   "app": {
-    "file": "OBD-HUB-WATCH-v1.0-20261002-temperature-alerts-app.bin",
-    "size": 2596704,
-    "sha256": "221f9c9d1492dcc5ec0f7dc47a27d9913b0625872ce95efd81eb9c34856c9da8",
+    "file": "OBD-HUB-WATCH-v1.0-20261002-gear-fix-app.bin",
+    "size": 2597488,
+    "sha256": "8a8d29011469562e16654a8457cbc0ec3deb045ba5b04d6625bbd51a1c27a050",
     "partition_size": 3145728,
     "flash_offset": "0x20000"
   },
-  "build_git_head": "858943892c3e993953fa82290744b9264ded88d9",
-  "build_dirty": true,
+  "build_git_head": "73e5883fd4ae1045962642df69adfdaee072faa8",
+  "build_dirty": false,
   "upstream_base": "528f54243ea1fe6f5e698291843ba3840e32efe5",
   "idf": "5.5.4",
   "lvgl": "8.4.0",
@@ -30,10 +30,11 @@
     "selected_intro_mode_ok": true,
     "single_app_boot": true,
     "fatal_errors": 0,
-    "temperature_feature_started": true
+    "temperature_feature_started": true,
+    "jcw_gear_config_verified": true
   },
-  "settings_preserved": false,
-  "latest_physical_ui_acceptance": "Prior needle geometry accepted; temperature alert behavior and display await user vehicle test",
+  "settings_preserved": true,
+  "latest_physical_ui_acceptance": "Prior needle/data-entry behavior accepted; gear shift accuracy and temperature alerts await vehicle testing",
   "live_lp_alert_validation": false,
   "rear_wireless_5v_physical_validation": false,
   "source_sha256": {
@@ -49,8 +50,8 @@
     "main/app_obd_dsp/boot_media_mount.h": "0053960a07bf63b721b1411dd52e80bc36d0ca47571ff2f2753330548e1d0774",
     "main/app_obd_dsp/device_identity.c": "267a3971cb9e7c0f5ece8fa223c667ea72cbb959b58077382e3fb7a95eb7b769",
     "main/app_obd_dsp/device_identity.h": "26ad896b5de3e2fe5e7afb2913c7fceb2c1b51cb95b696ff2f6c2e1c22a8f510",
-    "main/app_obd_dsp/obd_data_cache.c": "e8ea11371abf9339fc4cae2cf674857422afedd3fbc7e98b9cf25c54dbabfe3e",
-    "main/app_obd_dsp/obd_data_cache.h": "78c48d60fa81ceb63cadf3ce3d495c128f474bed83af92bdca607594e035e806",
+    "main/app_obd_dsp/obd_data_cache.c": "ac1242c7d3e683586fbb20a7520c3688dd2f7f7e8bba81ffa14ce52b1db7b349",
+    "main/app_obd_dsp/obd_data_cache.h": "1079a9b575343806c2fb4cf9412fa0289a152cf876420e2ffd245ff0218f2902",
     "main/app_obd_dsp/ota_update_ble.c": "689c9075efe3893c0bfefed41397c0b12589190a0e6bd9f0b9d0d8d92a881207",
     "main/app_obd_dsp/ota_update_ble.h": "4d09207db81dd6e6f67edd44908864353db5533ebc48e98be534adcbe0f54a1c",
     "main/app_obd_dsp/ota_wifi_server.c": "8bb2449834c8fc67d975acd08f7350b08b1dcbe384e32a93a3f8b8b6fe9b52c3",
@@ -65,8 +66,8 @@
     "main/app_obd_dsp/theme_mount.c": "d2f601812f480ef85c7a74f17b5d1472ddb906c397067f644ad71818e4b3c011",
     "main/app_obd_dsp/theme_mount.h": "7a55dad2e1b5eee29aa5eedf6aceaac61a7f2dd431a8c499cc879abe5a4a46b4",
     "main/app_obd_dsp/vehicle_custom_config.h": "87def5d2e7d5aec996618b73f9af9992b5cf061b5890af8e3449248a70568de2",
-    "main/app_obd_dsp/vehicle_profiles.c": "81b08f7331963e8d365b0fe56d0f7223e2022d20ece3e6605cdbbd61a0ed4f1f",
-    "main/app_obd_dsp/vehicle_profiles.h": "a100d1a628edb8016b517c2a6d07f61c10de08b5615bc33a929ad639f4b6c5b8",
+    "main/app_obd_dsp/vehicle_profiles.c": "b794fa0cde78f721bc96c0f444e53ab367eba1f18f43a13b6faa328f065ba078",
+    "main/app_obd_dsp/vehicle_profiles.h": "0ee8fd7cfae68119940a0fa58706ad2850ca447f7f14e2e8f93d1c4df769bdb4",
     "main/bsp_obd_dsp/ads1115_oil_pressure.c": "76dba454c429e8a67671d39f2a26d54c30416fb54768387e179457b47ed3d4ad",
     "main/bsp_obd_dsp/ads1115_oil_pressure.h": "775f9bc51df29d791c38b18d8a9937d35ec21a4a45f67c32a84853633396b400",
     "main/bsp_obd_dsp/ble_adv_util.c": "9dca3a73e7c9af4457adb6a6750554e167e32c73494308caa8da05a19d8de303",
@@ -147,9 +148,9 @@
     "main/export_path/screens/ui_ScreenPageThemeGauge.c": "cdb68bf88026f3c7cce175255852d5f83fd3264a5337d7e9601266dae2456ff0",
     "main/export_path/screens/ui_expression_poses.h": "d853bc4430966fb312f2a827d84f9cbe3d286a3410480a48f029930fd9863d1b",
     "main/export_path/theme_assets/.gitkeep": "5d341fcb768d29d370cd219f82c19ceca6afcbc6c67305b789e58583f915bc39",
-    "main/export_path/ui.c": "e8d5135347efa0aced039484d18a9124afdb3b3795a4dd9e466682b4f4d0bd29",
+    "main/export_path/ui.c": "c64b251b8ef752f574b0b02b9f206db594d24621540204da4a967503caf3b7b0",
     "main/export_path/ui.h": "86b90426439f41bf2d8a053babbb54500edbce45b648b7ed9f8441b680f61262",
-    "main/export_path/ui_data_entry.c": "46a7dd5e0a31013daca031f5e4a42fe112c1f6f3229cc850a2f58a6f8b92721b",
+    "main/export_path/ui_data_entry.c": "011d23b49e372a7c4dcc8510e4172b21f88910791c3c230d4bc038430db12067",
     "main/export_path/ui_data_entry.h": "3032e722a20da0a8f3e25d42ae77d8540565ff3b9cea7afbd4221da3c67034e2",
     "main/export_path/ui_disp_item.c": "7b42a729610ffd914ec687a15eb63248eab45cb0b76671b7b50a44071427c252",
     "main/export_path/ui_disp_item.h": "ff2deb99fbb8c05cd59b28dc745d10be7f3ac922563bce10e3d237472da43295",
@@ -182,9 +183,9 @@
     "sdkconfig.stopwatch": "8b7245ec0a0eff0cfedb11ba68bf8d914b25182a1c6783502c21d886bece4f24"
   },
   "source_hash_format": "SHA-256 of source bytes with CRLF normalized to LF",
-  "build_project_version": "8589438-dirty",
-  "source_commit": "ddc8296d4527c9628a26f5fc028c35e17ed6413a",
-  "flashed_at": "2026-10-02T19:13:49.707966+08:00",
+  "build_project_version": "73e5883",
+  "source_commit": "73e5883fd4ae1045962642df69adfdaee072faa8",
+  "flashed_at": "2026-10-02T19:51:52.050354+08:00",
   "charge_led_boot_validation": "CHRG active for 5243ms before ON; five short charging pulses ignored; OFF 8ms after release",
   "charge_led_usb_charging_on_readback_observed": true,
   "charge_led_visible_behavior_validation": false,
@@ -195,9 +196,9 @@
     "main/stopwatch/charge_led_policy.h"
   ],
   "previous_app": {
-    "file": "OBD-HUB-WATCH-v1.0-20261002-vehicle-ranges-app.bin",
-    "size": 2594256,
-    "sha256": "2bb6ee34ee3145124aa193063bd2c6aa555733ae1e80ad0b00894b8901348ec6",
+    "file": "OBD-HUB-WATCH-v1.0-20261002-temperature-alerts-app.bin",
+    "size": 2596704,
+    "sha256": "221f9c9d1492dcc5ec0f7dc47a27d9913b0625872ce95efd81eb9c34856c9da8",
     "partition_size": 3145728,
     "flash_offset": "0x20000"
   },
@@ -310,7 +311,7 @@
     "boost_acquisition": "Unchanged one-byte PID 010B MAP minus fixed 100 kPa; displayed gauge pressure limited to 1.5 bar",
     "tested_app_sha256": "2bb6ee34ee3145124aa193063bd2c6aa555733ae1e80ad0b00894b8901348ec6"
   },
-  "settings_migration": "One-time adoption of CLT/IAT/OIL defaults; all other logical NVS keys preserved",
+  "settings_migration": "No setting migration in gear fix; previous temperature adoption retained",
   "temperature_alert_validation": {
     "default_high_limits_c": [
       120,
@@ -353,5 +354,28 @@
     "physical_vehicle_test": "pending",
     "thresholds_are_factory_ecu_limits": false,
     "tested_app_sha256": "221f9c9d1492dcc5ec0f7dc47a27d9913b0625872ce95efd81eb9c34856c9da8"
+  },
+  "gear_estimate_validation": {
+    "tire": "215/40R18 Michelin PS5",
+    "nominal_radius_m": 0.3146,
+    "final_drive": 2.955,
+    "unmatched_hold_ms": 1000,
+    "unsmoothed_speed": true,
+    "unknown_display": "-- with empty arc",
+    "independent_kinematics_cases": 997,
+    "profiles_covered": 18,
+    "production_policy_tests": "passed",
+    "actual_lvgl_tests": "passed",
+    "independent_flash_verify": true,
+    "boot_verified": true,
+    "all_nvs_keys_preserved_after_boot": true,
+    "physical_vehicle_test": "pending",
+    "tested_app_sha256": "8a8d29011469562e16654a8457cbc0ec3deb045ba5b04d6625bbd51a1c27a050"
+  },
+  "final_boot_checks": {
+    "elf_hash_matches": true,
+    "jcw_parameters": true,
+    "display_ready": true,
+    "fatal_error_free": true
   }
 }
