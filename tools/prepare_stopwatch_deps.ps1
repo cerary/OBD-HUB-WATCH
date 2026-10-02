@@ -80,4 +80,15 @@ if ($amoled -notmatch 'Send the PSRAM row through the SPI') {
     if (-not $normalized.Contains($old)) { throw "Unexpected AMOLED transfer code in $amoledFile" }
     [System.IO.File]::WriteAllText($amoledFile, $normalized.Replace($old, $new))
 }
+$amoled = (Get-Content -LiteralPath $amoledFile -Raw).Replace("`r`n", "`n")
+if ($amoled -notmatch 'Reserve full-width DMA rows') {
+    $oldRows = '            buf[0] = bus->getDMABuffer(wb);' + "`n" +
+        '            buf[1] = bus->getDMABuffer(wb);'
+    $newRows = '            // Reserve full-width DMA rows even for narrow dirty rectangles.' + "`n" +
+        '            // Flip buffers must not shrink/grow as BLE fragments DMA memory.' + "`n" +
+        '            buf[0] = bus->getDMABuffer(stride);' + "`n" +
+        '            buf[1] = bus->getDMABuffer(stride);'
+    if (-not $amoled.Contains($oldRows)) { throw "Unexpected AMOLED DMA reservation in $amoledFile" }
+    [System.IO.File]::WriteAllText($amoledFile, $amoled.Replace($oldRows, $newRows))
+}
 Write-Host 'StopWatch dependencies ready.'

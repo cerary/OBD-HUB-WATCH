@@ -3,12 +3,15 @@
 #include "esp_timer.h"
 #include "ui_ext.h"
 #include "bsp_obd_dsp/elm327_ble_client.h"
+#include "bsp_obd_dsp/cx_power_policy.h"
+#include "stopwatch/brightness_policy.h"
 #include "bsp_obd_dsp/gauge_pair_ble_client.h"
 #include "bsp_obd_dsp/espnow_link.h"
 #include <assert.h>
 #include <limits.h>
 #include <stdio.h>
 #include <math.h>
+#include <time.h>
 
 enum { W=466, H=466 };
 static lv_color_t pixels[W*H], draw_pixels[W*32];
@@ -18,10 +21,14 @@ static status_ring_config_t ring_cfg;
 static int16_t alarms[RING_ITEM_COUNT];
 static int saves;
 static int cfg_saves, scans, scan_stops, shutdowns, cx_reads, cx_resumes;
+static bool power_policy_active, shutdown_ok=true, shutdown_allow_external;
+static cx_power_policy_t power_policy;
 static uint8_t sound_volume=60;
+static stopwatch_brightness_policy_t brightness = {100, false};
 static bool linked = true;
 static float imu_x,imu_y,imu_z=1.f;
 static unsigned imu_reads;
+static uint64_t flushed_pixels;
 static lv_dir_t gesture_direction;
 static ble_scan_found_cb_t scan_cb;
 static uint8_t master_mac[6];
@@ -49,7 +56,8 @@ bool ui_ext_sweep_active(void) {return sweep;}
 int64_t esp_timer_get_time(void) {return (int64_t)lv_tick_get()*1000;}
 uint32_t xTaskGetTickCount(void) {return lv_tick_get();}
 void esp_restart(void) {assert(!"Unexpected restart");}
-void Set_Backlight(uint8_t n) {(void)n;}
+void Set_Backlight(uint8_t n) {brightness.requested_percent=n;}
+void stopwatch_board_sleep_warning(bool active) {brightness.sleep_warning=active;}
 void stopwatch_board_feedback(stopwatch_feedback_t n) {(void)n;}
 void ui_event_logo_background(lv_event_t *e) {(void)e;}
 
@@ -61,15 +69,22 @@ static unsigned power_reads;
 bool stopwatch_board_power_status(uint8_t *percent,bool *power) {++power_reads;*percent=battery_level;*power=supply_external;return power_read_ok;}
 const char *elm327_ble_get_connected_name(void) {return "OBDLink CX";}
 const char *espnow_link_get_master_name(void) {return OBD_MASTER_DEVICE_PREFIX;}
-bool stopwatch_board_shutdown(void) {++shutdowns;return true;}
+bool stopwatch_board_shutdown(bool allow_external_power) {
+    shutdown_allow_external=allow_external_power;++shutdowns;return shutdown_ok;
+}
 bool stopwatch_board_imu_init(void) {return true;}
 bool stopwatch_board_imu_read(float *x,float *y,float *z) {++imu_reads;*x=imu_x;*y=imu_y;*z=imu_z;return true;}
 bool elm327_ble_cx_enabled(void) {return linked;}
 bool elm327_ble_cx_set_enabled(bool enabled) {linked=enabled;return true;}
-const char *elm327_ble_cx_status(void) {return "Ready - CX sleep linked";}
+const char *elm327_ble_cx_status(void) {return elm327_ble_cx_sleep_warning() ? "CX sleep soon - ACT ALERT" : "Ready - CX sleep linked";}
 void elm327_ble_cx_read_config(void) {++cx_reads;}
 void elm327_ble_cx_manual_resume(void) {++cx_resumes;}
-bool elm327_ble_cx_power_shutdown_due(bool power) {(void)power;return false;}
+bool elm327_ble_cx_power_shutdown_due(bool power) {
+    return power_policy_active && (waiting || sleeping) &&
+           cx_policy_external_power(&power_policy,power,lv_tick_get());
+}
+bool elm327_ble_cx_sleep_confirmed(void) {return power_policy_active && power_policy.sleep_confirmed;}
+bool elm327_ble_cx_sleep_warning(void) {return power_policy_active && (waiting || sleeping) && power_policy.sleep_warning;}
 void elm327_ble_scan_only_start(int duration,ble_scan_found_cb_t cb) {(void)duration;scan_cb=cb;++scans;}
 void elm327_ble_scan_only_stop(void) {++scan_stops;}
 void elm327_ble_connect_by_addr(const uint8_t *mac,const char *name) {(void)mac;(void)name;}
@@ -111,6 +126,7 @@ size_t strlcat(char *dst,const char *src,size_t size)
 
 static void flush(lv_disp_drv_t *drv,const lv_area_t *a,lv_color_t *c)
 {
+    flushed_pixels += (uint64_t)lv_area_get_size(a);
     for(int y=a->y1;y<=a->y2;++y)for(int x=a->x1;x<=a->x2;++x)pixels[y*W+x]=*c++;
     lv_disp_flush_ready(drv);
 }
@@ -347,15 +363,9 @@ static void thermal_sample(int clt, int iat, int oil)
 }
 static uint32_t outer_color(lv_obj_t *screen)
 {
-    lv_obj_update_layout(screen);
-    for(unsigned i=0;i<lv_obj_get_child_cnt(screen);++i) {
-        lv_obj_t *child=lv_obj_get_child(screen,i);
-        if(lv_obj_check_type(child,&lv_img_class) && lv_obj_get_width(child)>440)
-            return lv_color_to32(lv_obj_get_style_img_recolor(child,0));
-        if(lv_obj_get_style_border_width(child,0)==10 && lv_obj_get_width(child)>440)
-            return lv_color_to32(lv_obj_get_style_border_color(child,0));
-    }
-    assert(!"Outer ring missing");return 0;
+    assert(screen==lv_scr_act());
+    lv_obj_update_layout(screen);lv_refr_now(NULL);
+    return lv_color_to32(pixels[10*W+W/2]);
 }
 static void test_temperature_alerts(const char *folder)
 {
@@ -425,6 +435,53 @@ static void test_temperature_alerts(const char *folder)
     user_cfg.chart_source_idx=DISP_ITEM_CLT;user_cfg.needle_source_idx=DISP_ITEM_SPEED;connected=true;
     puts("PASS temperature UI: stable digits recolor after confirmed duration; cross-page CLT/OIL, local IAT only, numeric/needle colors and native threshold/OFF settings");
 }
+static void test_cx_shutdown(void) {
+    power_policy_active=true;waiting=true;sleeping=false;
+    cx_policy_reset(&power_policy,0);cx_policy_rpm(&power_policy,0,100);cx_policy_speed(&power_policy,0,200);
+    assert(cx_policy_tick(&power_policy,60200));
+    int saved_before=cfg_saves, shutdown_before=shutdowns;
+    Set_Backlight(20);assert(cx_policy_activity_alert(&power_policy));
+    lv_tick_inc(1000);ui_cx_power_update();
+    assert(stopwatch_brightness_effective(&brightness)==10 && cfg_saves==saved_before && shutdowns==shutdown_before);
+    lv_obj_update_layout(lv_layer_top());
+    bool warning_visible=false;
+    for(unsigned i=0;i<lv_obj_get_child_cnt(lv_layer_top());++i) {
+        lv_obj_t *card=lv_obj_get_child(lv_layer_top(),i);
+        if(lv_obj_has_flag(card,LV_OBJ_FLAG_HIDDEN))continue;
+        for(unsigned j=0;j<lv_obj_get_child_cnt(card);++j) {
+            lv_obj_t *label=lv_obj_get_child(card,j);
+            if(lv_obj_check_type(label,&lv_label_class)&&strstr(lv_label_get_text(label),"ACT ALERT")) {
+                assert(strstr(lv_label_get_text(label),"Waiting for LP ALERT"));
+                assert(lv_obj_get_height(label)<=lv_obj_get_content_height(card));
+                warning_visible=true;
+            }
+        }
+    }
+    assert(warning_visible);
+    lv_tick_inc(1000);ui_cx_power_update();assert(stopwatch_brightness_effective(&brightness)==10);
+    Set_Backlight(40);ui_cx_power_update();assert(stopwatch_brightness_effective(&brightness)==20);
+    waiting=false;ui_cx_power_update();assert(stopwatch_brightness_effective(&brightness)==40);
+    Set_Backlight(100);
+    power_policy_active=true;waiting=sleeping=true;
+    cx_policy_reset(&power_policy,lv_tick_get());cx_policy_sleep_alert(&power_policy);
+    supply_external=true;power_read_ok=false;shutdown_ok=false;
+    int before=shutdowns;
+    lv_tick_inc(1000);ui_cx_power_update();
+    assert(shutdowns==before+1 && shutdown_allow_external);
+    for(int i=0;i<3;++i) {lv_tick_inc(1000);ui_cx_power_update();}
+    assert(shutdowns==before+1); // failed readback/shutdown must not loop
+    waiting=sleeping=false;lv_tick_inc(1000);ui_cx_power_update();
+    cx_policy_reset(&power_policy,0);cx_policy_rpm(&power_policy,0,100);cx_policy_speed(&power_policy,0,200);
+    assert(cx_policy_tick(&power_policy,60200));assert(cx_policy_tick(&power_policy,390200));
+    waiting=sleeping=true;power_read_ok=true;shutdown_ok=true;
+    lv_tick_inc(1000);ui_cx_power_update();assert(shutdowns==before+1);
+    supply_external=false;lv_tick_inc(1000);ui_cx_power_update();
+    lv_tick_inc(2999);ui_cx_power_update();assert(shutdowns==before+1);
+    lv_tick_inc(501);ui_cx_power_update();
+    assert(shutdowns==before+2 && !shutdown_allow_external);
+    waiting=sleeping=power_policy_active=false;supply_external=true;
+    puts("PASS CX UI: ACT warning fits, dims once without NVS/shutdown, restores brightness; LP with live/unknown power; fallback waits 3s power loss");
+}
 int main(int argc,char **argv) {
     assert(argc==2);const char *folder=argv[1];lv_init();lv_tick_inc(1001);
     for(int i=0;i<RING_ITEM_COUNT;++i)alarms[i]=INT16_MAX;
@@ -454,6 +511,34 @@ int main(int argc,char **argv) {
     int iv[5]={92,101,42,25,31};for(int i=0;i<5;++i)disp_item_set_text(ui_LabelInfoValue[i],imap[i],iv[i],true);frame(folder,"info");
     ui_ScreenPageGForce_screen_init();lv_scr_load(ui_ScreenPageGForce);imu_y=-.60f;imu_x=-.28f;
     for(int i=0;i<30;++i){lv_tick_inc(80);lv_timer_handler();}frame(folder,"g-force");
+    clock_t bench_start=clock();flushed_pixels=0;
+    for(int i=0;i<120;++i) {
+        imu_x=.55f*sinf(i*.15f);imu_y=.60f*cosf(i*.15f);
+        lv_tick_inc(100);lv_timer_handler();ui_status_ring_tick();lv_refr_now(NULL);
+    }
+    printf("G_BENCH frames=120 cpu_ms=%.2f flushed_pixels=%llu\n",
+           1000.0*(clock()-bench_start)/CLOCKS_PER_SEC,(unsigned long long)flushed_pixels);
+    // Incremental ring recolor + moving white dot + fading trails must match
+    // a full repaint exactly, including LVGL's invalid-area queue limits.
+    static lv_color_t partial_frame[W*H];
+    for(int i=0;i<24;++i) {
+        connected=(i%3)!=0;
+        imu_x=.5f*sinf(i*.3f);imu_y=.5f*cosf(i*.3f);
+        lv_tick_inc(100);lv_timer_handler();ui_status_ring_tick();lv_refr_now(NULL);
+        memcpy(partial_frame,pixels,sizeof(pixels));
+        lv_obj_invalidate(lv_scr_act());lv_refr_now(NULL);
+        if(memcmp(partial_frame,pixels,sizeof(pixels))) {
+            unsigned different=0;
+            for(int q=0;q<W*H;++q) if(partial_frame[q].full!=pixels[q].full) {
+                if(different<12) fprintf(stderr,"DIFF frame=%d x=%d y=%d partial=%04x full=%04x\n",i,q%W,q/W,partial_frame[q].full,pixels[q].full);
+                ++different;
+            }
+            fprintf(stderr,"DIFF total=%u\n",different);
+            assert(!"Incremental frame differs from full repaint");
+        }
+    }
+    connected=true;
+    puts("PASS G incremental pixels: ring recolor, white-dot movement and trail fade equal full repaint");
     ui_ScreenPageNeedle_screen_init();lv_scr_load(ui_ScreenPageNeedle);
     disp_item_set_text(ui_NeedleValueLabel,DISP_ITEM_SPEED,80,true);lv_meter_set_indicator_value(ui_NeedleMeter,ui_NeedleIndic,80);frame(folder,"needle");
     ui_ScreenPageOilPressure_screen_init();lv_scr_load(ui_ScreenPageOilPressure);disp_item_set_text(ui_LabelOilPressureText,DISP_ITEM_CLT,92,true);
@@ -481,6 +566,7 @@ int main(int argc,char **argv) {
     test_gear_estimate(folder);
     test_display_ranges(folder);
     test_temperature_alerts(folder);
+    test_cx_shutdown();
     puts("Rendered all current carousel pages and settings from production LVGL/UI sources with illustrative inputs");
     return 0;
 }

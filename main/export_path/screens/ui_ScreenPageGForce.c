@@ -30,7 +30,7 @@
 #define G_TRAIL_FADE_MS 10000U
 #define G_TRAIL_FADE_STEPS 32U
 
-static lv_obj_t *s_grid[G_GRID_N][G_GRID_N];
+static lv_obj_t *s_grid_layer;
 static uint8_t s_grid_base[G_GRID_N][G_GRID_N];
 static bool s_trail_active[G_GRID_N][G_GRID_N];
 static uint32_t s_trail_lit_ms[G_GRID_N][G_GRID_N];
@@ -221,18 +221,41 @@ static void g_arc(lv_obj_t *parent, int rotation, int span, int quadrant)
     }
 }
 
+static lv_area_t grid_cell_area(int gx, int gy, int size)
+{
+    lv_area_t coords; lv_obj_get_coords(s_grid_layer, &coords);
+    int x = coords.x1 + lv_obj_get_width(s_grid_layer)/2 + (gx-G_GRID_HALF)*G_GRID_STEP - size/2;
+    int y = coords.y1 + lv_obj_get_height(s_grid_layer)/2 + (gy-G_GRID_HALF)*G_GRID_STEP - size/2;
+    return (lv_area_t){x, y, x+size-1, y+size-1};
+}
+
+static void draw_grid(lv_event_t *e)
+{
+    lv_draw_ctx_t *ctx = lv_event_get_draw_ctx(e);
+    lv_draw_rect_dsc_t dsc; lv_draw_rect_dsc_init(&dsc);
+    dsc.radius = LV_RADIUS_CIRCLE;
+    for(int gy=0; gy<G_GRID_N; ++gy) for(int gx=0; gx<G_GRID_N; ++gx) {
+        int base = s_grid_base[gy][gx];
+        if(!base) continue;
+        unsigned level = s_trail_level[gy][gx];
+        int size = level == 0 ? 4 : (level > G_TRAIL_FADE_STEPS/2 ? 6 : 5);
+        lv_area_t area = grid_cell_area(gx, gy, size), clipped;
+        if(!_lv_area_intersect(&clipped, &area, ctx->clip_area)) continue;
+        int red = base + ((0xE7-base)*level + G_TRAIL_FADE_STEPS/2)/G_TRAIL_FADE_STEPS;
+        int green = base + ((0x79-base)*level + G_TRAIL_FADE_STEPS/2)/G_TRAIL_FADE_STEPS;
+        int blue = base + ((0x80-base)*level + G_TRAIL_FADE_STEPS/2)/G_TRAIL_FADE_STEPS;
+        dsc.bg_color = lv_color_make(red, green, blue);
+        lv_draw_rect(ctx, &dsc, &area);
+    }
+}
+
 static void set_trail_level(int gx, int gy, uint8_t level)
 {
     s_trail_level[gy][gx] = level;
-    lv_obj_t *dot = s_grid[gy][gx];
-    if (!dot) return;
-    const int base = s_grid_base[gy][gx];
-    const int red = base + ((0xE7 - base) * level + G_TRAIL_FADE_STEPS / 2) / G_TRAIL_FADE_STEPS;
-    const int green = base + ((0x79 - base) * level + G_TRAIL_FADE_STEPS / 2) / G_TRAIL_FADE_STEPS;
-    const int blue = base + ((0x80 - base) * level + G_TRAIL_FADE_STEPS / 2) / G_TRAIL_FADE_STEPS;
-    lv_obj_set_style_bg_color(dot, lv_color_make(red, green, blue), LV_PART_MAIN);
-    lv_obj_set_size(dot, level == 0 ? 4 : (level > G_TRAIL_FADE_STEPS / 2 ? 6 : 5),
-                    level == 0 ? 4 : (level > G_TRAIL_FADE_STEPS / 2 ? 6 : 5));
+    if (!s_grid_layer || !s_grid_base[gy][gx]) return;
+    // Cover old AND new dot footprints while invalidating only this cell.
+    lv_area_t area = grid_cell_area(gx, gy, 8);
+    lv_obj_invalidate_area(s_grid_layer, &area);
 }
 
 static void fade_trail(uint32_t now_ms)
@@ -260,7 +283,7 @@ static void mark_grid(int x, int y, uint32_t now_ms)
 {
     int gx = (int)lroundf((float)x / G_GRID_STEP) + G_GRID_HALF;
     int gy = (int)lroundf((float)y / G_GRID_STEP) + G_GRID_HALF;
-    if (gx < 0 || gx >= G_GRID_N || gy < 0 || gy >= G_GRID_N || !s_grid[gy][gx]) return;
+    if (gx < 0 || gx >= G_GRID_N || gy < 0 || gy >= G_GRID_N || !s_grid_base[gy][gx]) return;
     if (!s_trail_active[gy][gx]) {
         s_trail_active[gy][gx] = true;
         s_trail_cells[s_trail_count++] = gy * G_GRID_N + gx;
@@ -294,7 +317,7 @@ static void update_g_meter(lv_timer_t *timer)
     s_filtered_x = 0.72f*s_filtered_x + 0.28f*tx;
     s_filtered_y = 0.72f*s_filtered_y + 0.28f*ty;
     int px = (int)lroundf(s_filtered_x), py = (int)lroundf(s_filtered_y);
-    lv_obj_align(s_live_dot, LV_ALIGN_CENTER, px, py);
+    if(px != s_last_x || py != s_last_y) lv_obj_align(s_live_dot, LV_ALIGN_CENTER, px, py);
     float values[4] = {-forward, -right, forward, right};
     for (int i=0; i<4; ++i) {
         if (values[i] > s_max_g[i]) {
@@ -320,7 +343,8 @@ static void g_page_delete(lv_event_t *e)
 {
     (void)e;
     if (s_update_timer) { lv_timer_del(s_update_timer); s_update_timer = NULL; }
-    memset(s_grid, 0, sizeof(s_grid));
+    s_grid_layer = NULL;
+    memset(s_grid_base, 0, sizeof(s_grid_base));
     s_live_dot = NULL;
     s_status = NULL;
     memset(s_peak_chars,0,sizeof(s_peak_chars));
@@ -350,6 +374,14 @@ void ui_ScreenPageGForce_screen_init(void)
     g_arc(ui_ScreenPageGForce, 16, 58, 1);    // lower right: 16..74
     g_arc(ui_ScreenPageGForce, 106, 58, 2);   // lower left: 106..164
     g_arc(ui_ScreenPageGForce, 196, 38, 3);   // upper left: 196..234
+    // One lightweight draw layer replaces hundreds of individual styled
+    // widgets. Ring changes and page entry no longer walk/redraw every dot.
+    s_grid_layer = lv_obj_create(ui_ScreenPageGForce);
+    lv_obj_remove_style_all(s_grid_layer);
+    lv_obj_set_size(s_grid_layer, 356, 356);
+    lv_obj_center(s_grid_layer);
+    lv_obj_clear_flag(s_grid_layer, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(s_grid_layer, draw_grid, LV_EVENT_DRAW_MAIN, NULL);
     for (int gy=-G_GRID_HALF; gy<=G_GRID_HALF; ++gy) {
         for (int gx=-G_GRID_HALF; gx<=G_GRID_HALF; ++gx) {
             int px=gx*G_GRID_STEP, py=gy*G_GRID_STEP;
@@ -357,16 +389,6 @@ void ui_ScreenPageGForce_screen_init(void)
             if (dist > G_GRID_RADIUS || (py < -105 && abs(px) < 85)) continue;
             int shade = 95 - (int)(80.f*powf(dist/G_GRID_RADIUS, 1.5f));
             if (shade < 13) shade=13;
-            lv_obj_t *dot = lv_obj_create(ui_ScreenPageGForce);
-            lv_obj_set_size(dot, 4, 4);
-            lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, LV_PART_MAIN);
-            lv_obj_set_style_bg_color(dot, lv_color_make(shade,shade,shade), LV_PART_MAIN);
-            lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, LV_PART_MAIN);
-            lv_obj_set_style_border_width(dot, 0, LV_PART_MAIN);
-            lv_obj_set_style_pad_all(dot, 0, LV_PART_MAIN);
-            lv_obj_align(dot, LV_ALIGN_CENTER, px, py);
-            lv_obj_clear_flag(dot, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
-            s_grid[gy+G_GRID_HALF][gx+G_GRID_HALF] = dot;
             s_grid_base[gy+G_GRID_HALF][gx+G_GRID_HALF] = (uint8_t)shade;
         }
     }
@@ -379,6 +401,7 @@ void ui_ScreenPageGForce_screen_init(void)
     fade_trail(lv_tick_get());
     s_live_dot = lv_obj_create(ui_ScreenPageGForce);
     lv_obj_set_size(s_live_dot, 14, 14);
+    lv_obj_align(s_live_dot, LV_ALIGN_CENTER, s_last_x, s_last_y);
     lv_obj_set_style_radius(s_live_dot, LV_RADIUS_CIRCLE, LV_PART_MAIN);
     lv_obj_set_style_bg_color(s_live_dot, lv_color_white(), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(s_live_dot, LV_OPA_COVER, LV_PART_MAIN);
@@ -394,6 +417,7 @@ void ui_ScreenPageGForce_screen_init(void)
         s_status=g_label(ui_ScreenPageGForce,imu_ok ? "SWIPE DOWN TO CALIBRATE" : "IMU UNAVAILABLE",
                          0,135,&ui_font_FontTypoderSize16,0xA4A1AB);
     s_update_timer=lv_timer_create(update_g_meter,80,NULL);
+    lv_timer_pause(s_update_timer); // resume on loaded; hidden pages do no IMU/UI work
     lv_obj_add_event_cb(ui_ScreenPageGForce,g_page_delete,LV_EVENT_DELETE,NULL);
     lv_obj_add_event_cb(ui_ScreenPageGForce,g_screen_state,LV_EVENT_SCREEN_LOADED,NULL);
     lv_obj_add_event_cb(ui_ScreenPageGForce,g_screen_state,LV_EVENT_SCREEN_UNLOADED,NULL);

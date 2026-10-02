@@ -9,18 +9,34 @@ void cx_policy_reset(cx_power_policy_t *p, uint64_t now) {
 }
 void cx_policy_rpm(cx_power_policy_t *p, uint16_t rpm, uint64_t now) {
     p->rpm = rpm; p->rpm_ms = p->ecu_ms = now; p->have_rpm = true;
+    p->rpm_no_data = p->speed_no_data = 0;
 }
 void cx_policy_speed(cx_power_policy_t *p, uint8_t speed, uint64_t now) {
     p->speed = speed; p->speed_ms = p->ecu_ms = now; p->have_speed = true;
+    p->rpm_no_data = p->speed_no_data = 0;
+}
+void cx_policy_no_data(cx_power_policy_t *p, bool rpm) {
+    uint8_t *count = rpm ? &p->rpm_no_data : &p->speed_no_data;
+    if (*count < 2) ++*count;
+}
+void cx_policy_ecu_alive(cx_power_policy_t *p, uint64_t now) {
+    p->ecu_ms = now;
+    p->rpm_no_data = p->speed_no_data = 0;
 }
 bool cx_policy_parking_candidate(const cx_power_policy_t *p) {
-    return p->have_rpm && p->have_speed && p->rpm == 0 && p->speed == 0 &&
-           p->ecu_ms - p->rpm_ms <= 10000 && p->ecu_ms - p->speed_ms <= 10000;
+    // Some ECUs disappear before delivering their final zero RPM sample.
+    // Keep the genuine nonzero sample. Recently paired stationary/idle
+    // readings and two explicit empty replies for BOTH PIDs are required.
+    bool paired = p->ecu_ms - p->rpm_ms <= 10000 && p->ecu_ms - p->speed_ms <= 10000;
+    bool missing_final_zero = p->rpm <= 1500 && p->rpm_no_data >= 2 && p->speed_no_data >= 2;
+    return p->have_rpm && p->have_speed && p->speed == 0 && paired &&
+           (p->rpm == 0 || missing_final_zero);
 }
 bool cx_policy_tick(cx_power_policy_t *p, uint64_t now) {
     if (p->state == CX_RUNNING &&
         ((cx_policy_parking_candidate(p) && now - p->ecu_ms >= 60000) ||
-         (!p->have_rpm && !p->have_speed && now - p->started_ms >= 300000))) {
+         (!p->have_rpm && !p->have_speed && now - p->started_ms >= 300000 &&
+          now - p->ecu_ms >= 60000))) {
         p->state = CX_QUIET; p->quiet_ms = now;
         return true;
     }
@@ -32,8 +48,17 @@ bool cx_policy_tick(cx_power_policy_t *p, uint64_t now) {
     }
     return false;
 }
-void cx_policy_sleep_alert(cx_power_policy_t *p) { p->state = CX_SLEEPING; }
+bool cx_policy_activity_alert(cx_power_policy_t *p) {
+    if (p->state != CX_QUIET || p->sleep_warning) return false;
+    p->sleep_warning = true;
+    return true;
+}
+void cx_policy_sleep_alert(cx_power_policy_t *p) {
+    p->state = CX_SLEEPING;
+    p->sleep_confirmed = true;
+}
 bool cx_policy_external_power(cx_power_policy_t *p, bool present, uint64_t now) {
+    if (p->state == CX_SLEEPING && p->sleep_confirmed) return true;
     if (present || p->state != CX_SLEEPING) {
         p->power_off_seen = false;
         return false;

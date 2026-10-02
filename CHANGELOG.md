@@ -4,6 +4,24 @@ Newest first. Entries cover behaviour and flashing changes; pure refactors and
 comment cleanups are left to the git history.
 最新的在最上面。这里只记录行为变化和烧录方式变化，纯重构和注释整理请查 git 历史。
 
+当前发布：[`stopwatch-20261003`](https://github.com/cerary/OBD-HUB-WATCH/releases/tag/stopwatch-20261003)。本次同步包含下面的 CX / G 表修复及 10 月 2 日声音与音量滑条，见[完整发布说明](docs/releases/2026-10-03-stopwatch.md)。
+
+## 2026-10-03 — CX 验证重试和诊断
+
+- 首次验证暂时失败后，同一次连接内最多验证3次，失败后间隔5秒、15秒；间隔内保留OBD读取，静默/休眠/OTA禁止重试。
+- 独立记录真实RPM/SPD样本、linked/armed状态、验证次数与失败阶段，便于分析点火和熄火。
+- 跟踪异步扫描开始/停止，合并重复停止并保护排队请求，减少无效扫描错误。
+- 前一版实车已确认ACT亮度70%→35%、LP后USB仍供电也能关机、G表不卡。本次新增重试已通过生产函数重放及主机回归，待下一轮实车确认。
+- 详情见 [更新说明](docs/releases/2026-10-03-cx-verification-retry.md)。
+
+## 2026-10-03 — CX 待机预告、关机和 G 表刷新
+
+- 修复停车漏采最后零 RPM 时反复自愈/重连，保留正常怠速与行车恢复。
+- 停车静默收到 ACT ALERT 后提示即将休眠，亮度临时减半；重复通知不叠加，不改已保存亮度，恢复连接后还原。
+- 真正 LP ALERT 直接关机，外部 5V 仍在也生效；超时兜底保持供电消失 3 秒限制。
+- G 表外圈局部重绘、网格合并、DMA 行缓存和实际脏区传输减少卡顿。
+- 策略/UI 回归、刷写校验、35 秒启动和设置/动画保留通过；后续实车已确认亮度减半、USB 仍插着时关机及 G 表不卡。再次上电和按键唤醒待单独验收。详见 [更新说明](docs/releases/2026-10-03-cx-sleep-g-render.md)。
+
 ## 2026-10-02 — StopWatch 操作提示音与音量滑条
 
 - 修复声音写入 DMA 后立即关功放、音量过低及初始化失败后不重试的问题；双声道输出相同的 80ms / 1600Hz 提示音，加入起止渐变和尾部静音排空。

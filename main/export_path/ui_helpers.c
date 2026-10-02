@@ -373,6 +373,68 @@ void _ui_switch_theme(int val)
 // on the 466-pixel AMOLED. Generate one symmetric alpha-only image instead;
 // all pages share it and recolor it without regenerating the mask.
 static lv_img_dsc_t s_stopwatch_ring_img;
+#define STOPWATCH_RING_TILES 16
+static lv_area_t s_ring_tiles[STOPWATCH_RING_TILES];
+typedef struct {
+    lv_obj_t obj;
+    lv_color_t color;
+    lv_opa_t opacity;
+} stopwatch_ring_t;
+
+static void stopwatch_ring_event(const lv_obj_class_t *class_p, lv_event_t *e)
+{
+    if(lv_obj_event_base(class_p, e) != LV_RES_OK) return;
+    lv_obj_t *obj = lv_event_get_target(e);
+    if(lv_event_get_code(e) == LV_EVENT_COVER_CHECK) {
+        lv_cover_check_info_t *info = lv_event_get_param(e);
+        info->res = LV_COVER_RES_NOT_COVER;
+    } else if(lv_event_get_code(e) == LV_EVENT_DRAW_MAIN) {
+        stopwatch_ring_t *ring = (stopwatch_ring_t *)obj;
+        lv_draw_ctx_t *ctx = lv_event_get_draw_ctx(e);
+        const lv_area_t *saved_clip = ctx->clip_area;
+        lv_area_t coords; lv_obj_get_coords(obj, &coords);
+        lv_draw_img_dsc_t dsc; lv_draw_img_dsc_init(&dsc);
+        dsc.recolor = ring->color; dsc.recolor_opa = LV_OPA_COVER;
+        dsc.opa = ring->opacity;
+        for(unsigned i = 0; i < STOPWATCH_RING_TILES; ++i) {
+            lv_area_t tile = s_ring_tiles[i], clipped;
+            lv_area_move(&tile, coords.x1, coords.y1);
+            if(!_lv_area_intersect(&clipped, saved_clip, &tile)) continue;
+            ctx->clip_area = &clipped;
+            lv_draw_img(ctx, &dsc, &coords, &s_stopwatch_ring_img);
+        }
+        ctx->clip_area = saved_clip;
+    }
+}
+static const lv_obj_class_t stopwatch_ring_class = {
+    .base_class = &lv_obj_class, .event_cb = stopwatch_ring_event,
+    .instance_size = sizeof(stopwatch_ring_t)
+};
+
+static void ring_include_rotated_images(lv_obj_t *parent, lv_area_t *area)
+{
+    // LVGL's transformed-image sampling can differ by one color step when a
+    // dirty rectangle cuts a glyph halfway across. Keep any intersecting
+    // rotated glyph's whole draw footprint in the refresh rectangle.
+    bool changed;
+    do {
+        changed = false;
+        for(uint32_t i = 0; i < lv_obj_get_child_cnt(parent); ++i) {
+            lv_obj_t *child = lv_obj_get_child(parent, i);
+            if(lv_obj_has_flag(child, LV_OBJ_FLAG_HIDDEN) ||
+               !lv_obj_has_class(child, &lv_img_class) ||
+               (!lv_img_get_angle(child) && lv_img_get_zoom(child) == LV_IMG_ZOOM_NONE)) continue;
+            lv_area_t bounds, overlap, expanded;
+            lv_obj_get_coords(child, &bounds);
+            lv_coord_t extra = _lv_obj_get_ext_draw_size(child);
+            bounds.x1 -= extra; bounds.x2 += extra;
+            bounds.y1 -= extra; bounds.y2 += extra;
+            if(!_lv_area_intersect(&overlap, area, &bounds)) continue;
+            _lv_area_join(&expanded, area, &bounds);
+            if(memcmp(area, &expanded, sizeof(expanded))) { *area = expanded; changed = true; }
+        }
+    } while(changed);
+}
 
 static bool stopwatch_ring_mask_init(void)
 {
@@ -423,9 +485,47 @@ static bool stopwatch_ring_mask_init(void)
     s_stopwatch_ring_img.header.cf = LV_IMG_CF_ALPHA_8BIT;
     s_stopwatch_ring_img.data_size = size;
     s_stopwatch_ring_img.data = mask;
+    // Two half-circle tiles for each of eight horizontal bands. Sixteen
+    // invalid rectangles leave room for moving dots/labels in LVGL's queue.
+    // Their bounds come from the SAME smooth mask, so no geometry changes.
+    for(unsigned i = 0; i < STOPWATCH_RING_TILES; ++i) {
+        int band = i / 2, half = i % 2;
+        lv_area_t *a = &s_ring_tiles[i];
+        *a = (lv_area_t){STOPWATCH_RING_SIZE, STOPWATCH_RING_SIZE, -1, -1};
+        for(int y = band * STOPWATCH_RING_SIZE / 8; y < (band + 1) * STOPWATCH_RING_SIZE / 8; ++y)
+            for(int x = half * STOPWATCH_RING_SIZE / 2; x < (half + 1) * STOPWATCH_RING_SIZE / 2; ++x)
+                if(mask[y * STOPWATCH_RING_SIZE + x]) {
+                    if(x < a->x1) a->x1 = x;
+                    if(y < a->y1) a->y1 = y;
+                    if(x > a->x2) a->x2 = x;
+                    if(y > a->y2) a->y2 = y;
+                }
+    }
     return true;
 }
 #endif
+
+bool ui_helpers_set_ring_color(lv_obj_t *obj, lv_color_t color, lv_opa_t opacity)
+{
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    if(lv_obj_check_type(obj, &stopwatch_ring_class)) {
+        stopwatch_ring_t *ring = (stopwatch_ring_t *)obj;
+        if(ring->color.full == color.full && ring->opacity == opacity) return true;
+        ring->color = color; ring->opacity = opacity;
+        lv_area_t coords; lv_obj_get_coords(obj, &coords);
+        for(unsigned i = 0; i < STOPWATCH_RING_TILES; ++i) {
+            lv_area_t tile = s_ring_tiles[i];
+            lv_area_move(&tile, coords.x1, coords.y1);
+            ring_include_rotated_images(lv_obj_get_parent(obj), &tile);
+            lv_obj_invalidate_area(obj, &tile);
+        }
+        return true;
+    }
+#else
+    (void)obj; (void)color; (void)opacity;
+#endif
+    return false;
+}
 
 lv_obj_t * ui_helpers_create_ring(lv_obj_t * parent, uint8_t border_width)
 {
@@ -445,13 +545,15 @@ lv_obj_t * ui_helpers_create_ring(lv_obj_t * parent, uint8_t border_width)
 
 #if CONFIG_OBD_HW_VERSION_M5STOPWATCH
     if(stopwatch_ring_mask_init()) {
-        lv_obj_t *ring = lv_img_create(parent);
-        lv_img_set_src(ring, &s_stopwatch_ring_img);
+        lv_obj_t *ring = lv_obj_class_create_obj(&stopwatch_ring_class, parent);
+        lv_obj_class_init_obj(ring);
+        lv_obj_remove_style_all(ring);
+        lv_obj_set_size(ring, STOPWATCH_RING_SIZE, STOPWATCH_RING_SIZE);
         lv_obj_set_align(ring, LV_ALIGN_CENTER);
-        lv_obj_set_style_img_recolor(ring, ui_theme_color_lv(UI_COLOR_RING), LV_PART_MAIN);
-        lv_obj_set_style_img_recolor_opa(ring, LV_OPA_COVER, LV_PART_MAIN);
+        ((stopwatch_ring_t *)ring)->color = ui_theme_color_lv(UI_COLOR_RING);
+        ((stopwatch_ring_t *)ring)->opacity = LV_OPA_COVER;
         lv_obj_clear_flag(ring, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
-        ui_status_ring_register(parent, ring, true);
+        ui_status_ring_register(parent, ring, false);
         return ring;
     }
 #endif

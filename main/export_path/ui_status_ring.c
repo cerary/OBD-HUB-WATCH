@@ -130,7 +130,9 @@ static void update(lv_obj_t *screen, bool force)
     uint8_t opacity = LV_OPA_COVER;
     if (color != entry->color || opacity != entry->opacity) {
         entry->color = color; entry->opacity = opacity;
-        if (entry->image) {
+        if (ui_helpers_set_ring_color(entry->ring, lv_color_hex(color), opacity)) {
+            // Smooth StopWatch mask: invalidate only occupied perimeter tiles.
+        } else if (entry->image) {
             lv_obj_set_style_img_recolor(entry->ring, lv_color_hex(color), 0);
             lv_obj_set_style_img_opa(entry->ring, opacity, 0);
         } else {

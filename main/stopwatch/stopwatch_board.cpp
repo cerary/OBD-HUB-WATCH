@@ -3,6 +3,7 @@
 #include "stopwatch_board.h"
 #include "cst820.h"
 #include "charge_led_policy.h"
+#include "brightness_policy.h"
 
 #include <M5GFX.h>
 #include <M5IOE1.h>
@@ -96,6 +97,7 @@ public:
 };
 
 StopWatchDisplay display;
+stopwatch_brightness_policy_t brightness_policy = {67, false};
 M5PM1 pmic;
 bool charge_input_ready = false;
 bool charge_led_state_known = false;
@@ -515,6 +517,7 @@ extern "C" bool stopwatch_board_init(void) {
 
 extern "C" void stopwatch_board_flush(int x, int y, int width, int height,
                                          const uint16_t *pixels, bool last) {
+    (void)last;
     // The CO5300 reports 468 pixels horizontally. LVGL uses the 466-pixel
     // centered circle, leaving one panel pixel on each side.
     display.startWrite();
@@ -539,25 +542,14 @@ extern "C" void stopwatch_board_flush(int x, int y, int width, int height,
         count -= chunk;
     }
     display.endWrite();
-    // Panel_AMOLED_Framebuffer uses two DMA row buffers sized to the transfer
-    // width. Partial-width updates repeatedly shrink and grow those buffers;
-    // after BLE starts, a grow can fail and switch individual rows to the
-    // much slower register path. Keep the row width fixed at the 468-pixel
-    // panel width while still transferring only the dirty vertical span.
-    static int dirty_top = 466;
-    static int dirty_bottom = -1;
-    if (y < dirty_top) dirty_top = y;
-    if (y + height - 1 > dirty_bottom) dirty_bottom = y + height - 1;
-    if (last) {
-        if (dirty_bottom >= dirty_top) {
-            display.display(0, dirty_top, 468, dirty_bottom - dirty_top + 1);
-            // display.waitDisplay() targets the framebuffer panel (a no-op).
-            // Wait on the underlying AMOLED bus before LVGL reuses its strips.
-            display.waitForPanelTransfer();
-        }
-        dirty_top = 466;
-        dirty_bottom = -1;
-    }
+    // The pinned M5GFX preparation patch reserves full-width DMA row buffers
+    // regardless of the rectangle width. Narrow updates can now keep those
+    // allocations stable, including after BLE starts. Transfer each actual
+    // LVGL dirty rectangle instead of combining two bezel edges into full
+    // screen rows; otherwise a color change still blocks the moving G dot.
+    display.display(x + 1, y, width, height);
+    // Wait on the underlying AMOLED bus before LVGL reuses its strips.
+    display.waitForPanelTransfer();
 }
 
 extern "C" bool stopwatch_board_touch(uint16_t *x, uint16_t *y) {
@@ -686,20 +678,25 @@ extern "C" bool stopwatch_board_power_status(uint8_t *percent, bool *external_po
     return true;
 }
 
-extern "C" bool stopwatch_board_shutdown(void) {
-    // Verify the retained wake configuration and recheck both supplies before
-    // cutting power. A failed read or power returning cancels this shutdown.
+extern "C" bool stopwatch_board_shutdown(bool allow_external_power) {
+    // USB uses an insertion event; rear 5V uses the retained falling edge of
+    // G4. An already-present supply does not constitute a new wake event.
     rear_power_ready = configure_rear_power_wake();
     uint8_t percent = 0;
     bool external_power = true;
-    if (!stopwatch_board_power_status(&percent, &external_power) || external_power) {
+    if (!rear_power_ready || (!allow_external_power &&
+        (!stopwatch_board_power_status(&percent, &external_power) || external_power))) {
         ESP_LOGW(TAG, "[POWER] shutdown cancelled: supply present or wake/readback unverified");
         return false;
     }
+    uint8_t old_wake = 0;
+    if (pmic.timerClear() != M5PM1_OK ||
+        pmic.getWakeSource(&old_wake, M5PM1_CLEAN_ALL) != M5PM1_OK) return false;
     // Called from the LVGL task: no new panel transfers can race this sequence.
     display.waitForPanelTransfer();
     if (feedback_task_handle) vTaskSuspend(feedback_task_handle);
-    ESP_LOGI(TAG, "[POWER] external 5V absent for 3s after CX sleep; entering PMIC L0");
+    ESP_LOGI(TAG, "[POWER] %s; entering PMIC L0 (new power insertion/button wake)",
+             allow_external_power ? "confirmed CX LP ALERT" : "CX fallback + 5V absent >=3s");
     if (pmic.ldoSetPowerHold(false) != M5PM1_OK) goto failed;
     display.setPanelBrightness(0);
     set_speaker_amplifier(false);
@@ -711,7 +708,7 @@ extern "C" bool stopwatch_board_shutdown(void) {
     }
     ioe.digitalWrite(M5IOE1_PIN_8, HIGH);
     ioe.digitalWrite(M5IOE1_PIN_3, HIGH);
-    display.setPanelBrightness(170);
+    Set_Backlight(brightness_policy.requested_percent);
 failed:
     pmic.ldoSetPowerHold(true);
     if (feedback_task_handle) vTaskResume(feedback_task_handle);
@@ -771,6 +768,15 @@ extern "C" bool stopwatch_board_imu_read(float *x, float *y, float *z) {
 
 extern "C" void Set_Backlight(uint8_t percent) {
     if (percent > 100) percent = 100;
+    brightness_policy.requested_percent = percent;
     // AMOLED brightness is controlled through the CO5300, not a GPIO backlight.
-    display.setPanelBrightness((uint32_t)percent * 255 / 100);
+    display.setPanelBrightness((uint32_t)stopwatch_brightness_effective(&brightness_policy) * 255 / 100);
+}
+
+extern "C" void stopwatch_board_sleep_warning(bool active) {
+    if (brightness_policy.sleep_warning == active) return;
+    brightness_policy.sleep_warning = active;
+    Set_Backlight(brightness_policy.requested_percent);
+    ESP_LOGI(TAG, "[POWER] ACT ALERT dim=%d requested=%u%% effective=%u%%",
+             active, brightness_policy.requested_percent, stopwatch_brightness_effective(&brightness_policy));
 }

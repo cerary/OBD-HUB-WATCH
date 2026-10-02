@@ -5,8 +5,8 @@
 
 把 M5Stack StopWatch 改造成带电池、触摸与实体按键的圆形车载仪表。当前维护目标是 **StopWatch V1.0**，主要以 MINI JCW F56 8AT 的 OBD 实车测试为依据。
 
-**最新更新：2026-10-02** — 操作提示音调通及可保存音量滑条、档位估算修复、温度两级提醒、JCW 量程和指针布局、切页首帧、充电灯稳定确认及原生 JCW 动画。
-见[完整更新说明](docs/releases/2026-10-02-stopwatch.md)、[更新日志](CHANGELOG.md)和[当前固件](firmware/README.md)；[GitHub Release](https://github.com/cerary/OBD-HUB-WATCH/releases/tag/stopwatch-20261002) 保留本次提示音修复之前的应用、动画与校验附件。提示音说明见[声音反馈](docs/SOUND-FEEDBACK.md)。
+**最新更新：2026-10-03** — 操作提示音与可保存音量滑条、熄火后重复重连修复、ACT 待机预告与临时亮度减半、LP 通知直接关机、G 表流畅度优化、CX 验证重试及独立诊断日志。
+见[完整更新说明](docs/releases/2026-10-03-stopwatch.md)、[更新日志](CHANGELOG.md)和[当前固件](firmware/README.md)。[GitHub Release](https://github.com/cerary/OBD-HUB-WATCH/releases/tag/stopwatch-20261003) 提供当前已刷入 Watch 的应用、JCW 动画、清单和校验附件；[10 月 2 日发布](https://github.com/cerary/OBD-HUB-WATCH/releases/tag/stopwatch-20261002) 保留原有快照。
 
 | 项目 | 当前标准 |
 | --- | --- |
@@ -55,9 +55,12 @@
 
 - **StopWatch 硬件移植：**屏幕、触摸、PMIC、双按键、BMI270、反馈；独立模式不启动 Wi-Fi / ESP-NOW；修复依赖头文件 ABI 不一致与 AMOLED DMA 分配失败路径。
 - **OBDLink CX：**FFF1 通知 / FFF2 写入、订阅与配对时序、初始化、重连与日志；支持配置回读和按适配器保存原始省电参数。
+- **CX 验证恢复：**同一 BLE 连接最多验证 3 次，失败后分别等 5 秒、15 秒再试，间隔内保留 OBD 读取；停车静默、休眠和 OTA 阻止重试。RPM / 车速日志独立于联动状态，并记录验证次数和失败阶段。
+- **声音反馈：**调通 ES8311 / AW8737A 提示音；FEEDBACK 的 SOUND 开关和 0–100% VOLUME 滑条控制响度，松手保存、重启保留，0% 静音。开启、关闭、响度和滑条已获实物确认，见[声音说明](docs/SOUND-FEEDBACK.md)。
 - **数据有效性：**断联清空读数与覆盖值；按通道判断过期；缺失显示 `--`，保留真正的 0；过期车速不累积里程。
 - **切页首帧：**数据页初始直接显示 `--`；进入页面时先读取当前有效缓存，避免先闪 `0/N` 或旧读数；真实零值与空档正常显示，开机扫表仍按原动画运行。
-- **电源与待机：**接收 `LP ALERT` 后停止查询和重连；外部供电存在时保持工作，确认休眠且两路供电消失 3 秒后进入 PMIC 待机；USB、背面 5V 或电源键可唤醒。具体触发与兜底规则见[待机说明](docs/CX-待机测试.md)。
+- **电源与待机：**真正收到 `LP ALERT` 后直接进入 PMIC 待机，USB / 背面 5V 持续供电不阻止关机；新电源上电或电源键唤醒。没收到通知的超时兜底仍要求两路供电消失 3 秒。具体触发与兜底规则见[待机说明](docs/CX-待机测试.md)。
+- **待机预告：**停车静默后收到 `ACT ALERT`，提示 CX 即将休眠，屏幕临时减为当前亮度的 50%；原设置保留，按键恢复连接后还原亮度，关机仍以 `LP ALERT` 为准。
 - **充电指示灯：**绿色状态灯按 PMIC GPIO2 的实际充电信号亮灭；电池供电、充满或充电信号未知时请求熄灭，兼容 USB 与 V1.0 背面 5V；保留原生启动 / 下载提示。USB 充电回读与按键 / 切页后的实灯行为已验证，背面供电与拔线 / 关机变化待完整验收。
 - **充电灯稳定确认（已刷机验证）：**充电芯片信号持续有效 5 秒才点亮，短暂变化不累计；充电结束、外部电源消失或状态未知时清除。USB 实测持续 5.243 秒后点亮，五次 1～3.5 秒变化未点灯；用户确认按键 / 切页后实灯保持熄灭。电池百分比不参与充电判断。
 - **开机动画：**原生 466×466、30fps RGB565 连续像素压缩，兼容旧版动画格式；动画资源独立更新，Watch 可选择 VIDEO / OFF。设置与制作方式见[开机动画说明](docs/BOOT-ANIMATION.md)。
@@ -69,6 +72,7 @@
 - **档位估算修正：**修正终传重复换算，JCW 按车主 215/40 R18 PS5 基准估算；使用平滑前车速，失配仅保留旧档 1 秒后显示 `--`，断联/过期清除。它仍是估算，不是 P/N/D/R 选择器读数，详见[车型与估算说明](docs/VEHICLE-RANGES.md)。
 - **峰值标记：**RPM / SPEED 的最高位保留 10px 标记，回落后 5 秒渐隐；更高值刷新；断联、过期、休眠和开机扫表不会留下假峰值。
 - **G 表：**扩大点阵、方向 MAX 文字约 15px、折线端头 10px；接头裁剪避免越线；逐点轨迹约 10 秒淡出；沿用安装校准与 1.5G 满量程。
+- **G 表刷新：**外圈周边局部重绘、点阵合并、轨迹逐点更新及固定 DMA 行缓存，减少换色时的绘制和传输。相同主机输入的绘制像素减少约 58%，局部刷新与全帧图像一致；用户已确认实车 G 表不卡。
 - **设置与导航：**状态页下滑进入六宫格；白色图标、原生控件、统一 BACK；触摸和按键循环一致，表情页在最后；OTA 集中到 MORE。
 - **稳定性修复：**AFR 数据源重启保留与旧报警配置迁移、转速闪烁恢复原背景与页面所有者、CX 配置回复中行内 `>` 的正确处理、页面重建时释放画布内存。
 
@@ -94,14 +98,18 @@ CLT=冷却液温度，IAT=进气温度，OIL=机油温度，LOAD=发动机负载
 
 MINI 当前走 OBD PID / 厂商请求轮询。OBD 接口可能具有 CAN 物理线，但不能假定其中包含所有内部总线广播；本车监听只观察到重复的 `0x130` 帧，尚未建立可替代 OBD 的有效 CAN 参数解码。上游 `ZN/C6 CAN` 是另一个车型的专用路径。
 
+本次发布：[2026-10-03 完整更新说明](docs/releases/2026-10-03-stopwatch.md)。
+
 ## 验证状态
 
 | 项目 | 已有证据 | 尚待确认 |
 | --- | --- | --- |
 | OBD 读取 / 重连 | 此前实车已获得有效读数，短时断链能自动恢复 | 首次连接仍需更多重复测试；不能承诺所有车辆 |
-| 本次固件 | ESP-IDF 构建、独立写入校验、35 秒启动日志通过；设置分区未变 | 新 UI 的用户实屏 / 实车验收正在进行 |
+| 本次固件 | ESP-IDF 构建、独立写入校验、35 秒启动与最终重启通过；23 个逻辑 NVS 键及 JCW 动画保留 | 新增验证重试待车辆日志确认 |
 | UI 与逻辑 | 实际 LVGL 模拟、按键/手势循环、过期处理、峰值、画布释放和宿主回归通过 | 桌面模拟不能代替物理触摸与温升测试 |
-| CX 省电 | 实车适配器回读已确认 ELM327 模式及 UART 空闲 300 秒；解析与状态机回归通过 | **真实 `LP ALERT`、熄火整条待机链尚待测试** |
+| CX 省电 | 前一版实车确认 QUIET 后约 240 秒 ACT、再 60 秒 LP；亮度 70%→35%，USB 仍插着时关机；停车末次 739rpm / 0km/h 能进入 QUIET | **本次同连接验证重试、再次上电及按键唤醒待单独实测** |
+| G 表流畅度 | 用户确认外圈换色和切页不卡；实际 LVGL 局部 / 全帧刷新逐像素一致 | 主机绘制耗时不是实物 FPS 测量 |
+| 操作提示音 | SOUND 开启有声、关闭无声；音量滑条与静音验收通过，硬件重启保留音量 | 温度双提示音尚未接入 |
 | V1.0 背面供电 | 原理图核对、两路检测与唤醒配置回读通过 | **无线接收模块、背面断电与重新供电唤醒尚待安装测试** |
 | 充电指示灯 | 真实充电信号持续 5 秒确认；USB 检测与回读通过，用户确认切页 / 按键后实灯保持熄灭 | **电池供电、USB 拔线 / 关机及背面 5V 的实灯变化待完整确认** |
 | 档位估算 | 18 个车型的 997 组独立样例、实际 UI、刷写校验与启动检查通过；更新 215/40 R18 基准 | **原车档位对照与换挡过程准确性待实车确认** |
@@ -121,7 +129,7 @@ $env:STOPWATCH_DEPS_DIR = (Split-Path (Get-Location).Path -Parent)
 idf.py -B build-stopwatch '-DSDKCONFIG=sdkconfig.stopwatch' build
 ```
 
-脚本准备固定版本 M5GFX 0.2.19、M5PM1 1.0.6、M5IOE1 1.0.8 和 Bosch BMI270 SensorAPI，并应用两处驱动兼容 / DMA 修复。依赖放在仓库的兄弟目录；`managed_components` 由 IDF Component Manager 管理。详情见 [BUILD.md](docs/BUILD.md)。
+脚本准备固定版本 M5GFX 0.2.19、M5PM1 1.0.6、M5IOE1 1.0.8 和 Bosch BMI270 SensorAPI，并应用驱动兼容 / DMA 修复。依赖放在仓库的兄弟目录；`managed_components` 由 IDF Component Manager 管理。详情见 [BUILD.md](docs/BUILD.md)。
 
 首次安装先确认是 V1.0，再按当前分区表烧录：
 
@@ -162,4 +170,4 @@ python3 tools/ui_preview/assemble.py --output docs/images
 
 **OBD HUB WATCH targets M5Stack StopWatch C152 hardware V1.0**, using ESP-IDF 5.5.4 and LVGL 8.4.0. It connects to OBDLink CX over BLE, adds calibrated BMI270 G-force and expression pages, and improves data freshness, power handling and the round UI. It derives from **steveEcode/obd_brz_gauge (SKYGAUGE)** and **zhaizhaitao/open_obd_dsp**, retaining GPL-3.0 and upstream history.
 
-The gallery is rendered from actual production UI code with illustrative inputs, not vehicle measurements. Real-car LP ALERT delivery and rear wireless-5V sleep/wake validation remain pending. **V1.0 rear pin 14 is 5V input; V1.0.1 pin 14 is a battery pin and must not receive 5V using this wiring.** See [build instructions](docs/BUILD.md), [improvements](docs/IMPROVEMENTS.md) and [firmware manifest](firmware/stopwatch/manifest.json).
+The gallery is rendered from actual production UI code with illustrative inputs, not vehicle measurements. This release adds persistent sound volume, bounded CX verification retries and independent diagnostics. The preceding road test confirmed ACT half-brightness, LP power-off with USB still connected, and smooth G-meter operation; the current retry recovery and new-power wake remain pending vehicle tests. **V1.0 rear pin 14 is 5V input; V1.0.1 pin 14 is a battery pin and must not receive 5V using this wiring.** See [release notes](docs/releases/2026-10-03-stopwatch.md), [build instructions](docs/BUILD.md), [improvements](docs/IMPROVEMENTS.md) and [firmware manifest](firmware/stopwatch/manifest.json).

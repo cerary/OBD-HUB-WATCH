@@ -9,7 +9,8 @@ typedef struct {
     uint64_t started_ms, rpm_ms, speed_ms, ecu_ms, quiet_ms, power_off_ms;
     uint16_t rpm;
     uint8_t speed;
-    bool have_rpm, have_speed, power_off_seen;
+    bool have_rpm, have_speed, power_off_seen, sleep_confirmed, sleep_warning;
+    uint8_t rpm_no_data, speed_no_data;
 } cx_power_policy_t;
 typedef struct { char line[64]; size_t len; bool overflow; } cx_alert_stream_t;
 typedef enum { CX_ALERT_NONE, CX_ALERT_ACTIVITY, CX_ALERT_SLEEP } cx_alert_t;
@@ -25,10 +26,16 @@ typedef struct {
 void cx_policy_reset(cx_power_policy_t *p, uint64_t now);
 void cx_policy_rpm(cx_power_policy_t *p, uint16_t rpm, uint64_t now);
 void cx_policy_speed(cx_power_policy_t *p, uint8_t speed, uint64_t now);
+// Only completed RPM/speed requests with explicit ECU absence count here.
+void cx_policy_no_data(cx_power_policy_t *p, bool rpm);
+void cx_policy_ecu_alive(cx_power_policy_t *p, uint64_t now);
 bool cx_policy_parking_candidate(const cx_power_policy_t *p);
 bool cx_policy_tick(cx_power_policy_t *p, uint64_t now);
+// ACT ALERT is a cancellable warning, accepted only after parking pause.
+bool cx_policy_activity_alert(cx_power_policy_t *p);
 void cx_policy_sleep_alert(cx_power_policy_t *p);
-// Either USB or rear 5V keeps the watch awake. Caller passes unknown as present.
+// A real LP ALERT powers off even with external power. The local timeout
+// fallback still requires 3 s without power; unknown input counts as present.
 bool cx_policy_external_power(cx_power_policy_t *p, bool present, uint64_t now);
 cx_alert_t cx_alert_feed(cx_alert_stream_t *s, uint8_t ch);
 void cx_response_reset(cx_response_stream_t *s);

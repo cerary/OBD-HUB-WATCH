@@ -22,6 +22,8 @@
 #include <stdio.h>
 #include "nvs_storage.h"
 #include "cx_power_policy.h"
+#include "cx_config_retry.h"
+#include "ble_scan_policy.h"
 #include "nvs.h"
 #include "sdkconfig.h"
 
@@ -56,6 +58,9 @@ static esp_gatt_if_t s_gattc_if = ESP_GATT_IF_NONE;   // 0 is a valid real inter
 static uint16_t s_conn_id = 0xFFFF;
 static esp_bd_addr_t s_peer_bda = {0};
 static volatile bool s_connected = false;
+static volatile uint32_t s_link_generation;
+static portMUX_TYPE s_scan_lock = portMUX_INITIALIZER_UNLOCKED;
+static ble_scan_policy_t s_scan_policy;
 static bool s_have_service = false;
 static uint16_t s_service_start = 0x0001, s_service_end = 0xFFFF; // default: full range
 static uint16_t s_all_attr_end = 0xFFFF; // tracks highest seen end handle
@@ -101,6 +106,7 @@ static uint8_t s_oil_query_mode = 0;     // current query mode index (0-2)
 // Called when valid OBD data is parsed: refreshes the "valid data" timestamp and sets the flag.
 // do_elm_init only sets the timestamp and does NOT go through here — just having initialized does not mean "data is flowing". Otherwise heal_attempts
 // would be cleared right after every re-init, and "3 consecutive self-heals escalate to forced reconnect" could never be reached.
+static void cx_ecu_alive(void);
 static inline void mark_obd_data_valid(void) {
     if (!s_ever_obd_data_this_link) {
         ESP_LOGI(TAG, "First valid OBD response received");
@@ -108,9 +114,12 @@ static inline void mark_obd_data_valid(void) {
     }
     s_last_obd_valid_us = esp_timer_get_time();
     s_got_valid_data = true;
+    cx_ecu_alive();
 }
 
 static void start_scan(void);
+static void stop_scan(void);
+static void scan_window(unsigned seconds);
 bool elm327_ble_send_ascii_blocking(const char *ascii_cmd);
 
 static bool send_rpm_request(const char *site)
@@ -203,6 +212,7 @@ static bool can_rules_have_channel(const vehicle_override_t *ov, uint8_t channel
 // Accumulation buffer for multi-packet responses (21 01 responses span multiple BLE packets)
 #define ACCUM_BUF_SIZE 512
 static char s_accum_buf[ACCUM_BUF_SIZE];
+static volatile uint8_t s_cx_requested_pid; // 1=RPM, 2=speed, 0=other
 static size_t s_accum_len = 0;
 static int64_t s_accum_start_us = 0; // accumulation start time (us)
 
@@ -214,13 +224,16 @@ static volatile bool s_cx_radio_paused;
 static volatile bool s_cx_enabled;
 static volatile bool s_cx_armed;
 static bool s_cx_loaded;
-static bool s_cx_config_this_link;
+static volatile bool s_cx_config_attempted_this_link;
+static cx_config_retry_t s_cx_config_retry; // owned by the OBD polling task
 static bool s_cx_session_started;
 static volatile int s_cx_action; // 1=restore, 2=apply, 3=read, 4=manual resume
 static const char *volatile s_cx_status = "Waiting for CX";
 static volatile bool s_cx_query_active, s_cx_query_done;
 static cx_response_stream_t s_cx_reply;
 static uint64_t s_cx_last_sample_log_ms;
+static uint64_t s_cx_last_status_log_ms;
+static unsigned s_cx_last_status_flags = ~0u;
 
 static uint64_t cx_now_ms(void) { return (uint64_t)esp_timer_get_time() / 1000; }
 static void cx_load(void) {
@@ -277,6 +290,19 @@ bool elm327_ble_cx_power_shutdown_due(bool present) {
     portEXIT_CRITICAL(&s_cx_lock);
     return due;
 }
+bool elm327_ble_cx_sleep_warning(void) {
+    portENTER_CRITICAL(&s_cx_lock);
+    bool warning = s_cx_policy.sleep_warning;
+    portEXIT_CRITICAL(&s_cx_lock);
+    return s_cx_enabled && s_cx_armed && s_cx_radio_paused && !s_ota_paused && warning &&
+           __atomic_load_n(&s_cx_action, __ATOMIC_ACQUIRE) != 4;
+}
+bool elm327_ble_cx_sleep_confirmed(void) {
+    portENTER_CRITICAL(&s_cx_lock);
+    bool confirmed = s_cx_policy.sleep_confirmed;
+    portEXIT_CRITICAL(&s_cx_lock);
+    return s_cx_enabled && s_cx_armed && confirmed;
+}
 void elm327_ble_cx_manual_resume(void) {
     if (!s_target_bda_valid) return;
     __atomic_store_n(&s_cx_action, 4, __ATOMIC_RELEASE);
@@ -294,11 +320,34 @@ static void cx_sample(bool rpm, unsigned value) {
     else cx_policy_speed(&s_cx_policy, value, now);
     bool log = now - s_cx_last_sample_log_ms >= 5000;
     unsigned r = s_cx_policy.rpm, v = s_cx_policy.speed;
+    bool have_rpm = s_cx_policy.have_rpm, have_speed = s_cx_policy.have_speed;
     unsigned long long rpm_age = now - s_cx_policy.rpm_ms;
     unsigned long long speed_age = now - s_cx_policy.speed_ms;
     if (log) s_cx_last_sample_log_ms = now;
     portEXIT_CRITICAL(&s_cx_lock);
-    if (s_cx_armed && log) ESP_LOGI(TAG, "[CX] ECU: RPM=%u age=%llums SPD=%u age=%llums (raw km/h)", r, rpm_age, v, speed_age);
+    if (log) ESP_LOGI(TAG, "[OBD] ECU: RPM=%u age=%llums SPD=%u age=%llums (raw km/h) samples=%d/%d linked=%d armed=%d",
+                     r, rpm_age, v, speed_age, have_rpm, have_speed, s_cx_enabled, s_cx_armed);
+}
+static void cx_log_status(void) {
+    uint64_t now = cx_now_ms();
+    portENTER_CRITICAL(&s_cx_lock);
+    cx_power_state_t state = s_cx_policy.state;
+    bool have_rpm = s_cx_policy.have_rpm, have_speed = s_cx_policy.have_speed;
+    uint64_t age = now - s_cx_policy.ecu_ms;
+    portEXIT_CRITICAL(&s_cx_lock);
+    unsigned flags = s_cx_enabled | (s_cx_armed << 1) | (s_connected << 2) |
+                     (s_notify_ready << 3) | (s_cx_radio_paused << 4) | (s_ota_paused << 5) | (state << 6);
+    if (flags == s_cx_last_status_flags && now - s_cx_last_status_log_ms < 30000) return;
+    s_cx_last_status_flags = flags; s_cx_last_status_log_ms = now;
+    ESP_LOGI(TAG, "[CX] status: linked=%d armed=%d connected=%d notify=%d paused=%d ota=%d state=%d samples=%d/%d ECU_age_ms=%llu attempts=%u/%u result=%s",
+             s_cx_enabled, s_cx_armed, s_connected, s_notify_ready, s_cx_radio_paused, s_ota_paused,
+             state, have_rpm, have_speed, (unsigned long long)age, s_cx_config_retry.attempts,
+             CX_CONFIG_MAX_ATTEMPTS, s_cx_status);
+}
+static void cx_ecu_alive(void) {
+    portENTER_CRITICAL(&s_cx_lock);
+    cx_policy_ecu_alive(&s_cx_policy, cx_now_ms());
+    portEXIT_CRITICAL(&s_cx_lock);
 }
 static bool cx_parking_candidate(void) {
     if (!s_cx_armed) return false;
@@ -311,6 +360,15 @@ static void cx_feed(const uint8_t *v, size_t n) {
     for (size_t i = 0; i < n; ++i) {
         cx_alert_t alert = cx_alert_feed(&s_cx_alert, v[i]);
         if (alert != CX_ALERT_NONE) ESP_LOGI(TAG, "[CX] asynchronous %s", alert == CX_ALERT_SLEEP ? "LP ALERT" : "ACT ALERT");
+        if (alert == CX_ALERT_ACTIVITY && s_cx_enabled && s_cx_armed && s_cx_radio_paused && !s_ota_paused) {
+            portENTER_CRITICAL(&s_cx_lock);
+            bool changed = cx_policy_activity_alert(&s_cx_policy);
+            portEXIT_CRITICAL(&s_cx_lock);
+            if (changed) {
+                s_cx_status = "CX sleep soon - ACT ALERT";
+                ESP_LOGI(TAG, "[CX] ACT ALERT: dim display to half; keep listening, no writes or reconnect");
+            }
+        }
         if (alert == CX_ALERT_SLEEP && s_cx_enabled && s_cx_armed) {
             // Set the write/scan guard on the BT callback thread, before any next PID.
             s_cx_radio_paused = true;
@@ -318,9 +376,9 @@ static void cx_feed(const uint8_t *v, size_t n) {
             portENTER_CRITICAL(&s_cx_lock);
             cx_policy_sleep_alert(&s_cx_policy);
             portEXIT_CRITICAL(&s_cx_lock);
-            s_cx_status = "CX asleep - waiting 5V off";
-            esp_ble_gap_stop_scanning();
-            ESP_LOGI(TAG, "[CX] LP ALERT: suppress all writes, self-heal and reconnect; keep display while external 5V on");
+            s_cx_status = "CX sleep confirmed - powering off";
+            stop_scan();
+            ESP_LOGI(TAG, "[CX] LP ALERT: suppress writes/reconnect; power off regardless of external 5V");
             if (s_poll_task_handle) xTaskNotifyGive(s_poll_task_handle);
         }
         if (s_cx_query_active) {
@@ -334,32 +392,40 @@ static void cx_feed(const uint8_t *v, size_t n) {
     }
 }
 static bool cx_query(const char *cmd, char *out, size_t size) {
+    if (size) out[0] = 0;
+    uint32_t link = s_link_generation;
     unsigned wait = 0;
-    while (!s_elm_ready && s_connected && !s_cx_radio_paused && wait < 3000) {
+    while (!s_elm_ready && s_connected && !s_cx_radio_paused && !s_ota_paused && link == s_link_generation && wait < 3000) {
         esp_task_wdt_reset(); vTaskDelay(pdMS_TO_TICKS(10)); wait += 10;
     }
-    if (!s_connected || !s_elm_ready || s_cx_radio_paused ||
-        memcmp(s_peer_bda, s_target_bda, 6) != 0) return false;
+    if (!s_connected || !s_elm_ready || s_cx_radio_paused || s_ota_paused || link != s_link_generation ||
+        memcmp(s_peer_bda, s_target_bda, 6) != 0) {
+        ESP_LOGW(TAG, "[CX] query not sent: command=%.*s connected=%d ready=%d paused=%d peer_match=%d",
+                 (int)strcspn(cmd, "\r\n"), cmd, s_connected, s_elm_ready, s_cx_radio_paused,
+                 memcmp(s_peer_bda, s_target_bda, 6) == 0);
+        return false;
+    }
     portENTER_CRITICAL(&s_cx_lock);
     cx_response_reset(&s_cx_reply);
     s_cx_query_done = false; s_cx_query_active = true;
     portEXIT_CRITICAL(&s_cx_lock);
     bool sent = elm327_ble_send_ascii_blocking(cmd);
     wait = 0;
-    while (sent && !s_cx_query_done && s_connected && !s_cx_radio_paused && wait < 3000) {
+    while (sent && !s_cx_query_done && s_connected && !s_cx_radio_paused && !s_ota_paused &&
+           link == s_link_generation && wait < 3000) {
         esp_task_wdt_reset(); vTaskDelay(pdMS_TO_TICKS(10)); wait += 10;
     }
     portENTER_CRITICAL(&s_cx_lock);
     bool done = s_cx_query_done, overflow = s_cx_reply.overflow;
-    bool ok = sent && done && !overflow;
+    bool ok = sent && done && !overflow && link == s_link_generation && s_connected && !s_cx_radio_paused && !s_ota_paused;
     if (size) {
         size_t copy_len = s_cx_reply.len < size ? s_cx_reply.len : size - 1;
         memcpy(out, s_cx_reply.text, copy_len); out[copy_len] = 0;
     }
     s_cx_query_active = false;
     portEXIT_CRITICAL(&s_cx_lock);
-    if (!ok) ESP_LOGW(TAG, "[CX] command failed (sent=%d done=%d overflow=%d): %s; reply: %s",
-                      sent, done, overflow, cmd, size ? out : "");
+    if (!ok) ESP_LOGW(TAG, "[CX] command failed: command=%.*s sent=%d done=%d overflow=%d; reply: %.120s",
+                      (int)strcspn(cmd, "\r\n"), cmd, sent, done, overflow, size ? out : "");
     return ok;
 }
 static bool cx_ok(const char *cmd) {
@@ -390,45 +456,62 @@ static bool cx_write_pp(uint8_t e, uint8_t f, bool e_on, bool f_on) {
     if (!cx_ok(f_on ? "ATPP0FON\r" : "ATPP0FOFF\r")) return false;
     char out[256]; return cx_query("ATZ\r", out, sizeof(out));
 }
-static void cx_configure(int action) {
-    char reply[1024];
+static void cx_arm_verified(void) {
+    if (!s_cx_session_started) {
+        portENTER_CRITICAL(&s_cx_lock);
+        s_cx_policy.started_ms = cx_now_ms();
+        portEXIT_CRITICAL(&s_cx_lock);
+        s_cx_session_started = true;
+    }
+    s_cx_armed = s_cx_enabled;
+    s_cx_status = s_cx_enabled ? "Ready - CX sleep linked" : "Disabled - CX config verified";
+}
+static cx_config_result_t cx_configure(int action) {
+    char reply[1024] = {0};
+    const char *stage = "STI";
     s_cx_status = "Checking CX";
-    if (!cx_query("STI\r", reply, sizeof(reply)) || !strstr(reply, "STN2310")) {
-        s_cx_armed = false; s_cx_status = "Not CX / firmware unavailable"; return;
+    if (!cx_query("STI\r", reply, sizeof(reply))) goto failed;
+    if (!strstr(reply, "STN2310")) {
+        s_cx_armed = false; s_cx_status = "Not CX / firmware unavailable";
+        ESP_LOGW(TAG, "[CX] firmware not verified: command=STI CX_UART=%d reply=%.120s", s_obdlink_cx_uart, reply);
+        return s_obdlink_cx_uart ? CX_CONFIG_RETRYABLE : CX_CONFIG_UNSUPPORTED;
     }
     ESP_LOGI(TAG, "[CX] firmware: %s", reply);
+    stage = "STSLCS";
     if (!cx_query("STSLCS\r", reply, sizeof(reply))) goto failed;
     ESP_LOGI(TAG, "[CX] active PowerSave:\n%s", reply);
     bool ready = cx_config_verified(reply);
     if (cx_query("STSLLT\r", reply, sizeof(reply))) ESP_LOGI(TAG, "[CX] last sleep/wake BEFORE ATZ: %s", reply);
     if (action == 3) {
+        stage = "ATPPS read";
         if (!cx_query("ATPPS\r", reply, sizeof(reply))) goto failed;
         uint8_t e, f; bool en, fn;
         ready = ready && cx_parse_pp(reply, 0x0e, &e, &en) &&
                 cx_parse_pp(reply, 0x0f, &f, &fn) && cx_pp_link_verified(e, f, en, fn);
         ESP_LOGI(TAG, "[CX] PP readback:\n%s", reply);
-        if (!ready) s_cx_armed = false;
-        s_cx_status = !ready ? "CX config read; not linked" :
-            s_cx_enabled && s_cx_armed ? "Ready - CX sleep linked" :
-            s_cx_enabled ? "CX verified - reconnect to link" : "Disabled - CX config verified";
-        return;
+        if (ready) cx_arm_verified();
+        else { s_cx_armed = false; s_cx_status = "CX config read; not linked"; }
+        return ready ? CX_CONFIG_SUCCESS : CX_CONFIG_RETRYABLE;
     }
     cx_pp_backup_t backup = { .version = 1 };
     if (action == 1) {
-        if (!cx_backup(&backup, false)) { s_cx_status = "Disabled - no saved CX settings"; return; }
+        if (!cx_backup(&backup, false)) { s_cx_status = "Disabled - no saved CX settings"; return CX_CONFIG_SUCCESS; }
+        stage = "restore PP";
         if (!cx_write_pp(backup.e, backup.f, backup.e_on, backup.f_on)) goto failed;
         if (!cx_query("ATPPS\r", reply, sizeof(reply))) goto failed;
         uint8_t e, f; bool en, fn;
         if (!cx_parse_pp(reply, 0x0e, &e, &en) || !cx_parse_pp(reply, 0x0f, &f, &fn) ||
             e != backup.e || f != backup.f || en != backup.e_on || fn != backup.f_on) goto failed;
         s_cx_armed = false; s_cx_status = "Disabled - CX settings restored";
-        ESP_LOGI(TAG, "[CX] original PP0E/PP0F restored and verified"); return;
+        ESP_LOGI(TAG, "[CX] original PP0E/PP0F restored and verified"); return CX_CONFIG_SUCCESS;
     }
-    if (!s_cx_enabled) { s_cx_status = "Disabled"; return; }
+    if (!s_cx_enabled) { s_cx_status = "Disabled"; return CX_CONFIG_SUCCESS; }
+    stage = "ATPPS verify";
     if (!cx_query("ATPPS\r", reply, sizeof(reply))) goto failed;
     uint8_t e, f; bool en, fn;
     if (!cx_parse_pp(reply, 0x0e, &e, &en) || !cx_parse_pp(reply, 0x0f, &f, &fn)) goto failed;
     if (!cx_backup(&backup, false)) {
+        stage = "save original PP";
         backup = (cx_pp_backup_t){1, e, f, en, fn};
         if (!cx_backup(&backup, true)) goto failed;
         ESP_LOGI(TAG, "[CX] original PP saved by bound MAC: 0E=%02X/%d 0F=%02X/%d", e, en, f, fn);
@@ -440,13 +523,16 @@ static void cx_configure(int action) {
         // Request OBD inactivity 150 s, HS-CAN wake disabled. v5.8.1 does not
         // report PA status; rely on the verified UART timeout as fallback.
         uint8_t new_e = (e & 0x42) | 0xA8;
+        stage = "apply PP";
         if (!cx_write_pp(new_e, 0xB5, true, true)) goto rollback;
+        stage = "STSLCS readback";
         if (!cx_query("STSLCS\r", reply, sizeof(reply))) goto rollback;
         if (!cx_config_verified(reply)) {
             ESP_LOGW(TAG, "[CX] PowerSave verification failed:\n%s", reply);
             goto rollback;
         }
         ESP_LOGI(TAG, "[CX] configured and read back:\n%s", reply);
+        stage = "ATPPS readback";
         if (!cx_query("ATPPS\r", reply, sizeof(reply))) goto rollback;
         if (!cx_parse_pp(reply, 0x0e, &e, &en) || !cx_parse_pp(reply, 0x0f, &f, &fn) ||
             e != new_e || !en || f != 0xB5 || !fn) {
@@ -456,21 +542,38 @@ static void cx_configure(int action) {
     }
     ESP_LOGI(TAG, "[CX] PP0E=%02X ON, PP0F=%02X ON verified", e, f);
     ESP_LOGI(TAG, "[CX] verified UART idle=300s; PA timeout behavior requires vehicle test");
-    if (!s_cx_session_started) {
-        portENTER_CRITICAL(&s_cx_lock);
-        s_cx_policy.started_ms = cx_now_ms();
-        portEXIT_CRITICAL(&s_cx_lock);
-        s_cx_session_started = true;
-    }
-    s_cx_armed = s_cx_enabled; s_cx_status = s_cx_enabled ? "Ready - CX sleep linked" : "Restore pending";
-    ESP_LOGI(TAG, "[CX] armed: zero RPM/SPD + 60s silence -> stop traffic; LP ALERT -> wait external 5V off 3s");
-    return;
+    cx_arm_verified();
+    ESP_LOGI(TAG, "[CX] armed: stationary ECU absent >=60s -> stop traffic; LP ALERT -> power off on either supply");
+    return CX_CONFIG_SUCCESS;
 rollback:
     ESP_LOGW(TAG, "[CX] apply/readback failed; restoring original PP");
     if (s_connected && !s_cx_radio_paused) cx_write_pp(backup.e, backup.f, backup.e_on, backup.f_on);
 failed:
     s_cx_armed = false; s_cx_status = "CX config failed - retry / disable";
-    ESP_LOGW(TAG, "[CX] configuration unverified; automatic shutdown NOT armed");
+    ESP_LOGW(TAG, "[CX] configuration unverified: stage=%s linked=%d armed=0; automatic shutdown NOT armed", stage, s_cx_enabled);
+    return CX_CONFIG_RETRYABLE;
+}
+
+static void cx_configure_attempt(int action) {
+    ESP_LOGI(TAG, "[CX] verify attempt=%u/%u action=%d linked=%d",
+             s_cx_config_retry.attempts + 1, CX_CONFIG_MAX_ATTEMPTS, action, s_cx_enabled);
+    cx_config_result_t result = cx_configure(action);
+    // Disconnection/new connection must not consume the next link's budget.
+    if (!s_connected || !s_notify_ready || !s_cx_config_attempted_this_link) return;
+    if (action == 1 || !s_cx_enabled) result = CX_CONFIG_UNSUPPORTED;
+    cx_config_retry_record(&s_cx_config_retry, result, cx_now_ms());
+    if (!s_cx_config_retry.finished) {
+        s_cx_status = "CX verify pending - retry";
+        ESP_LOGW(TAG, "[CX] verification retry in %llums; next attempt=%u/%u; OBD polling continues",
+                 (unsigned long long)(s_cx_config_retry.next_ms - cx_now_ms()),
+                 s_cx_config_retry.attempts + 1, CX_CONFIG_MAX_ATTEMPTS);
+    } else if (result == CX_CONFIG_RETRYABLE) {
+        s_cx_status = "CX verify failed - reconnect";
+        ESP_LOGW(TAG, "[CX] verification retries exhausted (%u/%u); linked=%d armed=%d; OBD polling continues",
+                 s_cx_config_retry.attempts, CX_CONFIG_MAX_ATTEMPTS, s_cx_enabled, s_cx_armed);
+    } else {
+        ESP_LOGI(TAG, "[CX] verification finished: linked=%d armed=%d result=%s", s_cx_enabled, s_cx_armed, s_cx_status);
+    }
 }
 
 static const char *const s_zc6_can_monitor_enter_cmds_plain[] = {
@@ -1246,6 +1349,7 @@ static void obd_poll_task(void *arg) {
             continue;
         }
         cx_load();
+        cx_log_status();
         int cx_action = __atomic_exchange_n(&s_cx_action, 0, __ATOMIC_ACQ_REL);
         if (cx_action == 4) {
             portENTER_CRITICAL(&s_cx_lock);
@@ -1253,7 +1357,7 @@ static void obd_poll_task(void *arg) {
             portEXIT_CRITICAL(&s_cx_lock);
             s_cx_session_started = false;
             s_cx_radio_paused = false;
-            s_cx_config_this_link = false;
+            s_cx_config_attempted_this_link = false;
             inited = false; heal_attempts = 0;
             s_cx_status = "Manual reconnect";
             ESP_LOGI(TAG, "[CX] explicit button/UI reconnect; parking pause cleared");
@@ -1261,9 +1365,10 @@ static void obd_poll_task(void *arg) {
             else if (s_target_bda_valid) start_scan();
         } else if (cx_action && s_connected && s_notify_ready && !s_ota_paused) {
             if (s_zc6_can_monitor_active) zc6_can_monitor_exit();
-            cx_configure(cx_action);
+            cx_config_retry_reset(&s_cx_config_retry);
+            s_cx_config_attempted_this_link = true;
+            cx_configure_attempt(cx_action);
             inited = false;
-            s_cx_config_this_link = true;
         } else if (cx_action) {
             __atomic_store_n(&s_cx_action, cx_action, __ATOMIC_RELEASE);
         }
@@ -1277,7 +1382,7 @@ static void obd_poll_task(void *arg) {
             if (changed) {
                 if (s_zc6_can_monitor_active && state == CX_QUIET) zc6_can_monitor_exit();
                 s_cx_radio_paused = true;
-                esp_ble_gap_stop_scanning();
+                stop_scan();
                 s_cx_status = state == CX_SLEEPING ? "CX idle timeout - waiting 5V off" : "ECU quiet - waiting CX sleep";
                 ESP_LOGI(TAG, "[CX] state=%s RPM=%u SPD=%u ECU_age_ms=%llu; all traffic/reconnect paused",
                          state == CX_SLEEPING ? "SLEEP_FALLBACK" : "QUIET", last_rpm, last_speed, (unsigned long long)age);
@@ -1316,9 +1421,10 @@ static void obd_poll_task(void *arg) {
         if (!inited) {
             vTaskDelay(pdMS_TO_TICKS(300));   // give the subscription a bit more time to settle
             if (!s_connected || !s_notify_ready) continue;  // dropped again while waiting — re-check before init
-            if (!s_cx_config_this_link) {
-                cx_configure(s_cx_enabled ? 2 : 1);
-                s_cx_config_this_link = true;
+            if (!s_cx_config_attempted_this_link) {
+                cx_config_retry_reset(&s_cx_config_retry);
+                s_cx_config_attempted_this_link = true;
+                cx_configure_attempt(s_cx_enabled ? 2 : 1);
             }
             if (s_cx_radio_paused || !s_connected) continue;
             do_elm_init();
@@ -1326,6 +1432,13 @@ static void obd_poll_task(void *arg) {
             if (!s_connected) continue;
             inited = true;
             tick_count = 0;
+            continue;
+        }
+        // Retry temporary verification failures on this same BLE connection.
+        // The parking/OTA guards above prevent resetting CX's idle sleep timer.
+        if (cx_config_retry_due(&s_cx_config_retry, cx_now_ms(), s_cx_enabled && !s_cx_armed)) {
+            cx_configure_attempt(2);
+            inited = false;
             continue;
         }
         // Real valid data is flowing (any frame parsed since the last round) → clear the self-heal counter.
@@ -1758,9 +1871,40 @@ static bool extract_mode21_oil_temp(const uint32_t *d, int count, int32_t *oil_c
     return false;
 }
 
-static void start_scan(void) {
+static void send_scan_stop(void) {
+    esp_err_t err = esp_ble_gap_stop_scanning();
+    if (err != ESP_OK) {
+        portENTER_CRITICAL(&s_scan_lock);
+        ble_scan_stopped(&s_scan_policy, false);
+        portEXIT_CRITICAL(&s_scan_lock);
+        ESP_LOGW(TAG, "OBD scan stop request failed: %s", esp_err_to_name(err));
+    }
+}
+static void stop_scan(void) {
+    portENTER_CRITICAL(&s_scan_lock);
+    ble_scan_action_t action = ble_scan_stop_request(&s_scan_policy);
+    portEXIT_CRITICAL(&s_scan_lock);
+    if (action == BLE_SCAN_STOP) send_scan_stop();
+}
+static void scan_window(unsigned seconds) {
     if (s_ota_paused || s_cx_radio_paused) return;
-    esp_ble_gap_start_scanning(10); // 10s
+    portENTER_CRITICAL(&s_scan_lock);
+    ble_scan_action_t action = ble_scan_start_request(&s_scan_policy, seconds);
+    portEXIT_CRITICAL(&s_scan_lock);
+    if (action != BLE_SCAN_START) return;
+    esp_err_t err = esp_ble_gap_start_scanning(seconds);
+    if (err != ESP_OK) {
+        portENTER_CRITICAL(&s_scan_lock);
+        ble_scan_started(&s_scan_policy, false, false);
+        unsigned next = s_scan_policy.restart_seconds;
+        s_scan_policy.restart_seconds = 0;
+        portEXIT_CRITICAL(&s_scan_lock);
+        ESP_LOGW(TAG, "OBD scan start request failed: %s", esp_err_to_name(err));
+        if (next) scan_window(next);
+    }
+}
+static void start_scan(void) {
+    scan_window(10);
 }
 
 static bool match_device_target(const esp_ble_gap_cb_param_t *pr, const char *target_name,
@@ -1872,6 +2016,7 @@ bool elm327_ble_send_command(const uint8_t *data, size_t len) {
 // Uses FreeRTOS task notifications instead of 10ms polling: xTaskNotify wakes immediately on '>', zero wait overhead.
 bool elm327_ble_send_ascii_blocking(const char *ascii_cmd)
 {
+    bool response_synced = true;
     if (s_cx_radio_paused) return false;
     // Fast-exit when disconnected: no point waiting for a '>' that will never arrive.
     // Prevents up to 3s of pointless blocking per command after a BLE drop.
@@ -1895,13 +2040,19 @@ bool elm327_ble_send_ascii_blocking(const char *ascii_cmd)
         if (!s_elm_ready) {
             ESP_LOGW(TAG, "Timeout (>3s) waiting previous response, forcing send: %s", ascii_cmd);
             s_elm_ready = true;
+            response_synced = false; // a delayed reply cannot be correlated safely
         }
     }
     if (s_cx_radio_paused) return false;
     s_elm_ready = false;
     uint8_t buf[32];
     size_t n = elm327_ble_ascii_cmd_to_bytes(ascii_cmd, buf, sizeof(buf));
-    if (n) return elm327_ble_send_command(buf, n);
+    if (n) {
+        s_cx_requested_pid = !response_synced ? 0 :
+                             n == 5 && !memcmp(buf, "010C\r", 5) ? 1 :
+                             n == 5 && !memcmp(buf, "010D\r", 5) ? 2 : 0;
+        return elm327_ble_send_command(buf, n);
+    }
     else {
         s_elm_ready = true;
         return false;
@@ -1996,7 +2147,7 @@ static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param
                     !s_ota_paused && !s_cx_radio_paused) {
                     ESP_LOGD(TAG, "Found target %s (dev=%s), connecting...",
                              s_target_name, dev_name[0] ? dev_name : "<no-name>");
-                    esp_ble_gap_stop_scanning();
+                    stop_scan();
                     s_open_pending = true;
                     s_open_started_us = esp_timer_get_time();
                     esp_err_t open_err = esp_ble_gattc_open(s_gattc_if, pr->scan_rst.bda,
@@ -2009,6 +2160,9 @@ static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param
                 }
             }
         } else if (pr->scan_rst.search_evt == ESP_GAP_SEARCH_INQ_CMPL_EVT) {
+            portENTER_CRITICAL(&s_scan_lock);
+            ble_scan_expired(&s_scan_policy);
+            portEXIT_CRITICAL(&s_scan_lock);
             // Scan window expired without a connection: keep auto-reconnect alive.
             if (!s_scan_only_mode && s_target_bda_valid && !s_connected && !s_ota_paused && !s_cx_radio_paused) {
                 start_scan();
@@ -2016,7 +2170,27 @@ static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param
         }
         break;
     }
-    case ESP_GAP_BLE_SCAN_STOP_COMPLETE_EVT:
+    case ESP_GAP_BLE_SCAN_START_COMPLETE_EVT: {
+        bool ok = param->scan_start_cmpl.status == ESP_BT_STATUS_SUCCESS;
+        portENTER_CRITICAL(&s_scan_lock);
+        ble_scan_action_t action = ble_scan_started(&s_scan_policy, ok, s_ota_paused || s_cx_radio_paused);
+        unsigned next = ok ? 0 : s_scan_policy.restart_seconds;
+        if (!ok) s_scan_policy.restart_seconds = 0;
+        portEXIT_CRITICAL(&s_scan_lock);
+        if (!ok) ESP_LOGW(TAG, "OBD scan start failed: status=0x%02X", param->scan_start_cmpl.status);
+        if (action == BLE_SCAN_STOP) send_scan_stop();
+        if (next) scan_window(next);
+        break;
+    }
+    case ESP_GAP_BLE_SCAN_STOP_COMPLETE_EVT: {
+        bool ok = param->scan_stop_cmpl.status == ESP_BT_STATUS_SUCCESS;
+        portENTER_CRITICAL(&s_scan_lock);
+        unsigned next = ble_scan_stopped(&s_scan_policy, ok);
+        portEXIT_CRITICAL(&s_scan_lock);
+        if (!ok) ESP_LOGW(TAG, "OBD scan stop failed: status=0x%02X", param->scan_stop_cmpl.status);
+        if (next && !s_ota_paused && !s_cx_radio_paused) scan_window(next);
+        break;
+    }
     default:
         break;
     }
@@ -2072,6 +2246,7 @@ static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_
         if (s_connected && s_conn_id == param->connect.conn_id) break;
         s_open_pending = false;
         s_connected = true;
+        ++s_link_generation;
         obd_data_invalidate_freshness();
         s_conn_id = param->connect.conn_id;
         memcpy(s_peer_bda, param->connect.remote_bda, sizeof(esp_bd_addr_t));
@@ -2080,12 +2255,13 @@ static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_
         s_notify_ready = false;
         s_notify_wait_started_us = esp_timer_get_time();
         s_first_rx_log_count = 0;
-        s_cx_config_this_link = false;
+        s_cx_config_attempted_this_link = false;
         memset(&s_cx_alert, 0, sizeof(s_cx_alert));
         if (s_cx_radio_paused) {
             esp_ble_gattc_close(s_gattc_if, s_conn_id);
             break;
         }
+        s_cx_armed = false; // this connection must verify before arming
         s_have_service = false;
         s_have_18f0 = false;
         s_have_ff12 = false;
@@ -2368,6 +2544,22 @@ static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_
         char *p61 = strstr(buf, "61 01"); // Mode 21 response header (exact match "61 01")
         char *p41 = strstr(buf, "41 ");
         char *p62 = strstr(buf, "62 ");
+        // An ELM prompt alone is not vehicle data. Count explicit ECU absence
+        // only for the matching RPM/speed request, never unsupported oil/gear
+        // PIDs, a BLE timeout, or a configuration command.
+        if (s_cx_requested_pid && !p41 && !p61 && !p62 &&
+            (strstr(buf, "NO DATA") || strstr(buf, "UNABLE TO CONNECT"))) {
+            portENTER_CRITICAL(&s_cx_lock);
+            bool was_candidate = cx_policy_parking_candidate(&s_cx_policy);
+            cx_policy_no_data(&s_cx_policy, s_cx_requested_pid == 1);
+            bool became_candidate = !was_candidate && cx_policy_parking_candidate(&s_cx_policy);
+            unsigned retained_rpm = s_cx_policy.rpm;
+            portEXIT_CRITICAL(&s_cx_lock);
+            if (became_candidate && s_cx_armed) ESP_LOGI(TAG,
+                "[CX] stationary ECU absent on RPM+SPD (last RPM=%u retained); recovery paused, quiet after 60s",
+                retained_rpm);
+        }
+        s_cx_requested_pid = 0;
         // ---- CAN broadcast frame parsing: data-driven ----
         const vehicle_profile_t *vp_can = vehicle_profile_get_active();
         const vehicle_override_t *ov_can = vehicle_profile_get_override();
@@ -2868,11 +3060,11 @@ void elm327_ble_scan_only_start(int duration_s, ble_scan_found_cb_t cb) {
     s_scan_count = 0;
     memset(s_scan_list, 0, sizeof(s_scan_list));
     ESP_LOGD(TAG, "Starting scan-only mode (%ds)...", duration_s);
-    esp_ble_gap_start_scanning(duration_s);
+    scan_window(duration_s > 0 ? (unsigned)duration_s : 10);
 }
 
 void elm327_ble_scan_only_stop(void) {
-    esp_ble_gap_stop_scanning();
+    stop_scan();
     s_scan_only_mode = false;
     ESP_LOGD(TAG, "Scan-only stopped. Found %d devices.", s_scan_count);
 }
@@ -2913,7 +3105,7 @@ void elm327_ble_connect_by_addr(const uint8_t mac[6], const char *name) {
         s_cbs.on_parsed_afr = default_on_parsed_afr;
     }
     // Start scanning; auto-connect once found
-    esp_ble_gap_start_scanning(15);
+    scan_window(15);
     // Create the poll task (if not already created)
     if (!s_poll_task_started) {
         xTaskCreate(obd_poll_task, "obd_poll", 6144, NULL, 4, NULL);
@@ -2930,7 +3122,7 @@ void elm327_ble_disconnect(void) {
     // well, so the disconnect callback does not immediately reconnect it.
     s_target_bda_valid = false;
     s_open_pending = false;
-    esp_ble_gap_stop_scanning();
+    stop_scan();
     if (s_connected && s_gattc_if != ESP_GATT_IF_NONE && s_conn_id != 0xFFFF) {
         ESP_LOGD(TAG, "Disconnecting from BLE device...");
         esp_ble_gattc_close(s_gattc_if, s_conn_id);
@@ -2943,7 +3135,7 @@ void elm327_ble_disconnect(void) {
 // GATT client keeps re-scanning/reconnecting in the background.
 void elm327_ble_pause_for_ota(void) {
     s_ota_paused = true;
-    esp_ble_gap_stop_scanning();
+    stop_scan();
     if (s_connected && s_gattc_if != ESP_GATT_IF_NONE && s_conn_id != 0xFFFF) {
         esp_ble_gattc_close(s_gattc_if, s_conn_id);
     }

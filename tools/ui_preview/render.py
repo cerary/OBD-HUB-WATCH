@@ -130,6 +130,7 @@ sources = [UI/'screens/ui_ScreenPageEasterEgg.c', UI/'screens/ui_ScreenPageLogo.
            UI/'ui_status_ring.c', UI/'ui_disp_item.c', UI/'ui_peak_marker.c', UI/'screens/ui_ScreenPagePeakSettings.c',
            MAIN/'app_obd_dsp/peak_marker_policy.c', MAIN/'app_obd_dsp/temperature_alert_policy.c',
            MAIN/'app_obd_dsp/status_ring_policy.c', MAIN/'app_obd_dsp/obd_data_cache.c', MAIN/'app_obd_dsp/vehicle_profiles.c',
+           MAIN/'bsp_obd_dsp/cx_power_policy.c',
            UI/'screens/ui_ScreenPageChartAlarm.c']
 sources += [UI/'ui_data_entry.c', UI/'ui_display_filter.c']
 sources += [UI/f'fonts/ui_font_FontTypoderSize{s}.c' for s in (140, 90, 24, 20, 16, 36, 40, 44)]

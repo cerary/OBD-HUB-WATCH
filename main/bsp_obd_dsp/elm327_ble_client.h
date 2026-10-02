@@ -105,6 +105,8 @@ bool elm327_ble_cx_is_waiting(void);
 bool elm327_ble_cx_is_asleep(void);
 // Supply present means USB OR StopWatch v1.0 rear 5V; false must be verified.
 bool elm327_ble_cx_power_shutdown_due(bool present);
+bool elm327_ble_cx_sleep_confirmed(void);
+bool elm327_ble_cx_sleep_warning(void);
 void elm327_ble_cx_manual_resume(void);
 void elm327_ble_cx_read_config(void);
 

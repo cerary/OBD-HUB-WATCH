@@ -59,7 +59,7 @@ void ui_ScreenPageCxSettings_screen_init(void) {
     button(screen, "RECONNECT", 60, 2);
     button(screen, "BACK", 112, 3);
     lv_obj_t *hint = lv_label_create(screen);
-    lv_label_set_text(hint, "OFF restores saved CX settings\nSleep alert -> wait for 5V off");
+    lv_label_set_text(hint, "OFF restores saved CX settings\nLP ALERT -> power off\nNew 5V / power key -> wake");
     lv_obj_set_style_text_font(hint, &lv_font_montserrat_12, 0);
     lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(hint, LV_ALIGN_CENTER, 0, 165);
@@ -73,6 +73,8 @@ void ui_cx_power_update(void) {
         lv_label_set_text(enable_label, elm327_ble_cx_enabled() ? "LINKED STANDBY: ON" : "LINKED STANDBY: OFF");
     }
     bool waiting = elm327_ble_cx_is_waiting();
+    bool warning = elm327_ble_cx_sleep_warning();
+    stopwatch_board_sleep_warning(warning);
     if (waiting && !waiting_card) {
         waiting_card = lv_obj_create(lv_layer_top());
         lv_obj_set_size(waiting_card, 350, 210);
@@ -92,12 +94,20 @@ void ui_cx_power_update(void) {
     if (waiting_card) {
         if (waiting && lv_scr_act() != ui_ScreenPageCxSettings) {
             lv_obj_clear_flag(waiting_card, LV_OBJ_FLAG_HIDDEN);
-            lv_label_set_text_fmt(waiting_text, "%s\n\n5V off: power down\nAny key: reconnect", elm327_ble_cx_status());
+            lv_label_set_text_fmt(waiting_text, "%s\n\n%s\nAny key: reconnect", elm327_ble_cx_status(),
+                                  warning ? "Dimmed: 50% of brightness\nWaiting for LP ALERT" : "LP ALERT: power down");
         } else lv_obj_add_flag(waiting_card, LV_OBJ_FLAG_HIDDEN);
     }
     uint32_t now = lv_tick_get();
     if ((int32_t)(now - next_power_check) < 0) return;
     next_power_check = now + 500;
+    bool confirmed = elm327_ble_cx_sleep_confirmed();
+    if (!waiting) shutdown_failed = false;
+    if (confirmed && !shutdown_failed && elm327_ble_cx_power_shutdown_due(true)) {
+        ESP_LOGI("cx_power", "[POWER] shutdown gate: verified LP ALERT; external 5V ignored");
+        shutdown_failed = !stopwatch_board_shutdown(true);
+        return;
+    }
     uint8_t percent; bool external_power;
     if (!stopwatch_board_power_status(&percent, &external_power)) {
         // An unknown input must never be counted as continued external power loss.
@@ -108,10 +118,9 @@ void ui_cx_power_update(void) {
         ESP_LOGI("cx_power", "[POWER] external=%s battery=%u%% waiting=%d", external_power ? "ON" : "OFF", percent, waiting);
         have_power = true; last_power = external_power;
     }
-    if (!waiting || external_power) shutdown_failed = false;
     if (!shutdown_failed && elm327_ble_cx_power_shutdown_due(external_power)) {
         ESP_LOGI("cx_power", "[POWER] shutdown gate: CX asleep + external 5V absent >=3s");
-        shutdown_failed = !stopwatch_board_shutdown();
+        shutdown_failed = !stopwatch_board_shutdown(false);
     }
 }
 #else

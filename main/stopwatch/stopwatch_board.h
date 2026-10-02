@@ -27,11 +27,14 @@ bool stopwatch_board_power_status(uint8_t *percent, bool *external_power);
 // Short CHRG pulses are ignored; charge end / external power loss clears it.
 // Poll from the LVGL task every 500 ms; supports USB and v1.0 rear 5V input.
 void stopwatch_board_charge_led_update(void);
-bool stopwatch_board_shutdown(void); // PMIC L0; USB / rear 5V arrival / power button cold boot
+// allow_external_power is reserved for a verified CX LP ALERT.
+bool stopwatch_board_shutdown(bool allow_external_power); // PMIC L0; new power arrival / button cold boot
 bool stopwatch_board_imu_init(void);
 // Acceleration in g, in display coordinates: +x right, +y toward screen bottom.
 bool stopwatch_board_imu_read(float *x, float *y, float *z);
 void Set_Backlight(uint8_t percent);
+// LVGL task only: halve current brightness temporarily; false restores it.
+void stopwatch_board_sleep_warning(bool active);
 
 #ifdef __cplusplus
 }

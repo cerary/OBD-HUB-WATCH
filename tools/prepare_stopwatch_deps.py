@@ -35,15 +35,15 @@ def prepare(destination):
 
     for name in ('M5PM1', 'M5IOE1'):
         path = destination / name / 'CMakeLists.txt'
-        source = path.read_text()
+        source = path.read_text(encoding='utf-8')
         if '"M5GFX"' not in source:
             source = source.replace('"espressif__i2c_bus"', '"espressif__i2c_bus"\n        "M5GFX"')
             if '"M5GFX"' not in source:
                 raise RuntimeError(f'Could not patch {path}')
-            path.write_text(source)
+            path.write_text(source, encoding='utf-8')
 
     path = destination / 'M5GFX/src/lgfx/v1/panel/Panel_AMOLED.cpp'
-    source = path.read_text()
+    source = path.read_text(encoding='utf-8')
     if 'Send the PSRAM row through the SPI' not in source:
         old = '''                auto lb = buf[i & 1];//s->getDMABuffer(wb);
                 memcpy(lb,  &_frame_buffer[fbpos], wb);
@@ -61,7 +61,18 @@ def prepare(destination):
                 bus->writeBytes(lb ? lb : &_frame_buffer[fbpos - stride], wb, false, lb != nullptr);'''
         if old not in source:
             raise RuntimeError(f'Unexpected AMOLED transfer code in {path}')
-        path.write_text(source.replace(old, new))
+        source = source.replace(old, new)
+        path.write_text(source, encoding='utf-8')
+    if 'Reserve full-width DMA rows' not in source:
+        old = '''            buf[0] = bus->getDMABuffer(wb);
+            buf[1] = bus->getDMABuffer(wb);'''
+        new = '''            // Reserve full-width DMA rows even for narrow dirty rectangles.
+            // Flip buffers must not shrink/grow as BLE fragments DMA memory.
+            buf[0] = bus->getDMABuffer(stride);
+            buf[1] = bus->getDMABuffer(stride);'''
+        if old not in source:
+            raise RuntimeError(f'Unexpected AMOLED DMA reservation in {path}')
+        path.write_text(source.replace(old, new), encoding='utf-8')
     print(f'StopWatch dependencies ready: {destination}')
 
 
