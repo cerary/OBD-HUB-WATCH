@@ -2,6 +2,7 @@
 // on the user's device with ESP-IDF 5.5.4. Based on M5StopWatch-UserDemo (MIT).
 #include "stopwatch_board.h"
 #include "cst820.h"
+#include "charge_led_policy.h"
 
 #include <M5GFX.h>
 #include <M5IOE1.h>
@@ -99,6 +100,7 @@ M5PM1 pmic;
 bool charge_input_ready = false;
 bool charge_led_state_known = false;
 bool charge_led_on = false;
+charge_led_policy_t charge_led_policy = {};
 
 bool configure_charge_input() {
     // LGS4056 CHRG is active-low on PMIC GPIO2, pulled up by the board.
@@ -471,9 +473,28 @@ extern "C" void stopwatch_board_charge_led_update(void) {
         pmic.gpioGetInput(M5PM1_GPIO_NUM_2, &charge_level) == M5PM1_OK;
     // External supply alone is not charging: CHRG releases high at full charge.
     // Rear 5V bypasses the USB VIN ADC, so both input paths must be considered.
-    const bool charging = status_known && (usb_mv > 4000 || rear_level == 0) &&
-                          charge_level == 0;
-    const bool applied = set_charge_led(charging); // unknown status -> off
+    const bool external_power = usb_mv > 4000 || rear_level == 0;
+    const bool raw_charging = status_known && external_power && charge_level == 0;
+    const bool confirmed_charging = charge_led_policy_update(
+        &charge_led_policy, status_known, external_power, raw_charging,
+        static_cast<uint64_t>(now_us) / 1000U);
+    // Short CHRG assertions from touch/vibration/load transients do not relight
+    // the lamp. Every new assertion must pass the full confirmation window.
+    static bool sample_logged = false;
+    static bool last_known = false, last_external = false, last_raw = false;
+    if (!sample_logged || status_known != last_known || external_power != last_external ||
+        raw_charging != last_raw) {
+        uint16_t battery_mv = 0;
+        const bool battery_known = pmic.readVbat(&battery_mv) == M5PM1_OK;
+        ESP_LOGI(TAG, "[POWER] charge sample: known=%u external=%u CHRG=%u VBAT=%umV%s confirm=%ums",
+                 status_known, external_power, raw_charging, battery_mv,
+                 battery_known ? "" : " (unknown)", CHARGE_LED_CONFIRM_MS);
+        sample_logged = true;
+        last_known = status_known;
+        last_external = external_power;
+        last_raw = raw_charging;
+    }
+    const bool applied = set_charge_led(confirmed_charging); // unknown status -> off
     const bool failed = !status_known || !applied;
     if (failed && !was_failed)
         ESP_LOGW(TAG, "[POWER] charge LED status/control unverified; requesting OFF");

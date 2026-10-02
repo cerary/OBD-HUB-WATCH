@@ -3,6 +3,8 @@ from pathlib import Path
 import subprocess
 ROOT=Path(__file__).resolve().parents[1];MAIN=ROOT/'main';HOST=ROOT/'tools/host_test';BUILD=ROOT/'.cache/host-tests';BUILD.mkdir(parents=True,exist_ok=True)
 def run(args):subprocess.run(list(map(str,args)),check=True)
+exe=BUILD/'test_charge_led'
+run(['gcc','-std=c11','-Wall','-Wextra','-Werror','-I'+str(MAIN),ROOT/'tools/test_charge_led.c','-o',exe]);run([exe])
 for name,source,include in (('cx_power','bsp_obd_dsp/cx_power_policy.c',MAIN/'bsp_obd_dsp'),('status_ring','app_obd_dsp/status_ring_policy.c',MAIN),('peak_marker','app_obd_dsp/peak_marker_policy.c',MAIN)):
  exe=BUILD/('test_'+name)
  run(['gcc','-std=c11','-Wall','-Wextra','-Werror','-I'+str(include),ROOT/('tools/test_'+name+'.c'),MAIN/source,'-lm','-o',exe]);run([exe])
