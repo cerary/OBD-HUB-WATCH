@@ -18,6 +18,7 @@ static status_ring_config_t ring_cfg;
 static int16_t alarms[RING_ITEM_COUNT];
 static int saves;
 static int cfg_saves, scans, scan_stops, shutdowns, cx_reads, cx_resumes;
+static uint8_t sound_volume=60;
 static bool linked = true;
 static float imu_x,imu_y,imu_z=1.f;
 static unsigned imu_reads;
@@ -32,6 +33,8 @@ void host_gear(enGear gear,bool unknown);
 void host_info(bool is_slave,bool ble_now);
 const nvs_user_cfg_t *nvs_cfg_get(void) {return &user_cfg;}
 esp_err_t nvs_cfg_set(const nvs_user_cfg_t *c) {user_cfg=*c; ++cfg_saves; return ESP_OK;}
+uint8_t nvs_sound_volume_get(void) {return sound_volume;}
+esp_err_t nvs_sound_volume_set(uint8_t v) {assert(v<=100);sound_volume=v;return ESP_OK;}
 const status_ring_config_t *nvs_status_ring_get(void) {return &ring_cfg;}
 esp_err_t nvs_status_ring_set(const status_ring_config_t *c) {assert(status_ring_config_valid(c));ring_cfg=*c;++saves;return ESP_OK;}
 int16_t nvs_chart_alarm_get(uint8_t i) {return alarms[i];}
@@ -460,6 +463,11 @@ int main(int argc,char **argv) {
     imu_x=imu_y=0;ui_ScreenPageExpression_screen_init();lv_scr_load(ui_ScreenPageExpression);
     for(int i=0;i<10;++i){lv_tick_inc(40);lv_timer_handler();}frame(folder,"expression");
     ui_ScreenPageSettings_screen_init();lv_scr_load(ui_ScreenPageSettings);frame(folder,"settings");
+    ui_ScreenPageFeedback_screen_init();lv_scr_load(ui_ScreenPageFeedback);frame(folder,"feedback-off");
+    user_cfg.touch_sound_enabled=1;
+    lv_scr_load(ui_ScreenPageSettings);
+    lv_obj_del(ui_ScreenPageFeedback);
+    ui_ScreenPageFeedback_screen_init();lv_scr_load(ui_ScreenPageFeedback);frame(folder,"feedback-volume");
     ui_ScreenPageCxSettings_screen_init();lv_scr_load(ui_ScreenPageCxSettings);
     for(int i=0;i<8;++i){lv_tick_inc(80);lv_timer_handler();}
     ui_cx_power_update();frame(folder,"cx-standby");

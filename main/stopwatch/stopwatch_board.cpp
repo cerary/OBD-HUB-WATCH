@@ -214,7 +214,7 @@ void bmi_delay_us(uint32_t us, void *) {
 
 bool set_speaker_amplifier(bool enabled) {
     m5ioe1_err_t err = M5IOE1_OK;
-    // AW8737A is gated by both the IO expander and ESP GPIO14.
+    // Follow the official demo: set IOE10 and GPIO14 together.
     const esp_err_t gpio_err = gpio_set_level(GPIO_NUM_14, enabled ? 1 : 0);
     ioe.digitalWriteWithRes(M5IOE1_PIN_10, enabled ? 1 : 0, &err);
     if (err == M5IOE1_OK) {
@@ -362,7 +362,7 @@ bool init_sound(void) {
     return true;
 }
 
-void play_feedback_sound(uint8_t kind, int16_t *pcm) {
+void play_feedback_sound(uint8_t kind, int16_t *pcm, uint8_t volume) {
     if (!init_sound() || !set_speaker_amplifier(true)) return;
     const int64_t amplifier_start = esp_timer_get_time();
     vTaskDelay(pdMS_TO_TICKS(50));
@@ -384,8 +384,8 @@ void play_feedback_sound(uint8_t kind, int16_t *pcm) {
     }
     uint32_t sent_after=0,nonzero_after=0;
     audio_sent_snapshot(sent_after,nonzero_after);
-    ESP_LOGI(TAG, "[AUDIO] cue=%u OK: write=%lldus PA=%lldms drain=%lu samples off=%s TX=%lu nonzero=%lu",
-             kind,(long long)(write_end-write_start),
+    ESP_LOGI(TAG, "[AUDIO] cue=%u OK: volume=%u%% peak=%d write=%lldus PA=%lldms drain=%lu samples off=%s TX=%lu nonzero=%lu",
+             kind,volume,(int)(SOUND_AMPLITUDE * volume / 100.f),(long long)(write_end-write_start),
              (long long)((esp_timer_get_time()-amplifier_start)/1000),
              (unsigned long)SOUND_DRAIN_SAMPLES,amplifier_off ? "verified" : "FAILED",
              (unsigned long)(sent_after-sent_before),
@@ -394,15 +394,8 @@ void play_feedback_sound(uint8_t kind, int16_t *pcm) {
 
 void feedback_task(void *) {
     static int16_t pcm[SOUND_TONE_SAMPLES*SOUND_CHANNELS];
+    uint8_t pcm_volume = 255;
     constexpr uint32_t fade_samples = SOUND_SAMPLE_RATE * 3 / 1000;
-    for (uint32_t i=0;i<SOUND_TONE_SAMPLES;++i) {
-        float envelope=1.f;
-        if (i<fade_samples) envelope=(float)i/fade_samples;
-        else if (i>=SOUND_TONE_SAMPLES-fade_samples)
-            envelope=(float)(SOUND_TONE_SAMPLES-1-i)/fade_samples;
-        const int16_t sample=(int16_t)(SOUND_AMPLITUDE*envelope*sinf(6.2831853f*SOUND_FREQUENCY*i/SOUND_SAMPLE_RATE));
-        pcm[2*i]=pcm[2*i+1]=sample;
-    }
     for (;;) {
         ulTaskNotifyTake(pdTRUE,portMAX_DELAY);
         // Touch release reaches the driver just before LVGL emits CLICKED,
@@ -425,7 +418,24 @@ void feedback_task(void *) {
         }
         // Finish the vibration independently; codec setup/draining must not
         // extend a 20/35ms motor pulse. Both run outside the LVGL task.
-        if (sound) play_feedback_sound(kind,pcm);
+        const uint8_t volume = nvs_sound_volume_get();
+        if (sound && volume) {
+            // Only this task touches PCM/codec. UI saves a percentage on release;
+            // 100% reproduces the confirmed loud cue, 0% never starts the PA.
+            if (volume != pcm_volume) {
+                const float amplitude = SOUND_AMPLITUDE * volume / 100.f;
+                for (uint32_t i=0;i<SOUND_TONE_SAMPLES;++i) {
+                    float envelope=1.f;
+                    if (i<fade_samples) envelope=(float)i/fade_samples;
+                    else if (i>=SOUND_TONE_SAMPLES-fade_samples)
+                        envelope=(float)(SOUND_TONE_SAMPLES-1-i)/fade_samples;
+                    const int16_t sample=(int16_t)(amplitude*envelope*sinf(6.2831853f*SOUND_FREQUENCY*i/SOUND_SAMPLE_RATE));
+                    pcm[2*i]=pcm[2*i+1]=sample;
+                }
+                pcm_volume = volume;
+            }
+            play_feedback_sound(kind,pcm,volume);
+        }
     }
 }
 }

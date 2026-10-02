@@ -16,6 +16,8 @@
 #define KEY_CHART_ALARM       "chartalarm"
 #define KEY_STATUS_RING       "statusring"
 #define KEY_TEMP_ALERTS       "tempalert_v1" // one-time adoption of temperature advisory defaults
+#define KEY_SOUND_VOLUME      "soundvol"
+static uint8_t s_sound_volume = 60;
 static status_ring_config_t s_status_ring = {2400, 4000, 5500, 100, 100, {0,0,0}};
 #define CHART_ALARM_N         12   // = DISP_ITEM_COUNT (must stay in sync with disp_item_t in ui.c)
 #define CHART_ALARM_OFF       32767 // "off" sentinel for alarm thresholds (unreachable, avoids false alarms)
@@ -78,6 +80,18 @@ esp_err_t nvs_storage_init(void)
     ESP_ERROR_CHECK(err);
 
     load_blob(NS_CFG, KEY_CFG, &s_cfg, sizeof(s_cfg));
+
+    {
+        nvs_handle_t h;
+        uint8_t saved = 60;
+        s_sound_volume = 60;
+        if (nvs_open(NS_CFG, NVS_READONLY, &h) == ESP_OK) {
+            if (nvs_get_u8(h, KEY_SOUND_VOLUME, &saved) == ESP_OK && saved <= 100)
+                s_sound_volume = saved;
+            nvs_close(h);
+        }
+        ESP_LOGI(TAG, "[AUDIO] saved cue volume=%u%% (0=mute, default=60)", s_sound_volume);
+    }
 
     {
         nvs_handle_t h;
@@ -236,6 +250,36 @@ esp_err_t nvs_cfg_set(const nvs_user_cfg_t *cfg)
     if(memcmp(cfg,&s_cfg,sizeof(s_cfg))==0) return ESP_OK;
     s_cfg=*cfg;
     return save_blob(NS_CFG, KEY_CFG, &s_cfg, sizeof(s_cfg));
+}
+
+uint8_t nvs_sound_volume_get(void)
+{
+    xSemaphoreTake(s_mux, portMAX_DELAY);
+    uint8_t value = s_sound_volume;
+    xSemaphoreGive(s_mux);
+    return value;
+}
+
+esp_err_t nvs_sound_volume_set(uint8_t percent)
+{
+    if (percent > 100) return ESP_ERR_INVALID_ARG;
+    xSemaphoreTake(s_mux, portMAX_DELAY);
+    esp_err_t err = ESP_OK;
+    if (percent != s_sound_volume) {
+        nvs_handle_t h;
+        err = nvs_open(NS_CFG, NVS_READWRITE, &h);
+        if (err == ESP_OK) {
+            err = nvs_set_u8(h, KEY_SOUND_VOLUME, percent);
+            if (err == ESP_OK) err = nvs_commit(h);
+            nvs_close(h);
+        }
+        if (err == ESP_OK) {
+            s_sound_volume = percent;
+            ESP_LOGI(TAG, "[AUDIO] cue volume saved=%u%%", percent);
+        }
+    }
+    xSemaphoreGive(s_mux);
+    return err;
 }
 
 /* Chart alarm thresholds */

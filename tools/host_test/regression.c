@@ -15,6 +15,8 @@
 
 static struct {char key[40]; unsigned char data[512]; size_t size;} store[20];
 static unsigned count;
+static bool fail_volume_write;
+static unsigned volume_writes;
 static int64_t now_us=1000000;
 static void (*mile_cb)(void*);
 esp_err_t nvs_open(const char *ns,int mode,nvs_handle_t *h){(void)ns;(void)mode;*h=1;return ESP_OK;}
@@ -34,7 +36,13 @@ esp_err_t nvs_set_blob(nvs_handle_t h,const char *key,const void *data,size_t si
     memcpy(store[i].data,data,size);store[i].size=size;return ESP_OK;
 }
 esp_err_t nvs_get_u8(nvs_handle_t h,const char *key,uint8_t *v){size_t s=1;return nvs_get_blob(h,key,v,&s);}
-esp_err_t nvs_set_u8(nvs_handle_t h,const char *key,uint8_t v){return nvs_set_blob(h,key,&v,1);}
+esp_err_t nvs_set_u8(nvs_handle_t h,const char *key,uint8_t v){
+    if (!strcmp(key,"soundvol")) {
+        if (fail_volume_write) return ESP_FAIL;
+        ++volume_writes;
+    }
+    return nvs_set_blob(h,key,&v,1);
+}
 esp_err_t nvs_commit(nvs_handle_t h){(void)h;return ESP_OK;}
 void nvs_close(nvs_handle_t h){(void)h;}
 esp_err_t nvs_flash_init(void){return ESP_OK;}
@@ -69,6 +77,36 @@ int main(int argc,char **argv) {
         if (!strcmp(mode,"temperature_off")) nvs_set_u8(1,"tempalert_v1",1);
     }
     assert(nvs_storage_init()==ESP_OK);
+    if (!strcmp(mode,"sound_volume")) {
+        nvs_user_cfg_t original=*nvs_cfg_get();
+        status_ring_config_t ring=*nvs_status_ring_get();
+        unsigned char old_blob[512];size_t old_size=sizeof(old_blob);
+        assert(nvs_get_blob(1,"settings",old_blob,&old_size)==ESP_OK);
+        assert(nvs_sound_volume_get()==60);
+        assert(nvs_sound_volume_set(35)==ESP_OK);
+        uint8_t saved=255;
+        assert(nvs_get_u8(1,"soundvol",&saved)==ESP_OK&&saved==35);
+        unsigned writes=volume_writes;
+        assert(nvs_sound_volume_set(35)==ESP_OK&&volume_writes==writes);
+        assert(nvs_storage_init()==ESP_OK&&nvs_sound_volume_get()==35);
+        assert(nvs_sound_volume_set(0)==ESP_OK);
+        assert(nvs_storage_init()==ESP_OK&&nvs_sound_volume_get()==0);
+        assert(nvs_sound_volume_set(100)==ESP_OK);
+        assert(nvs_storage_init()==ESP_OK&&nvs_sound_volume_get()==100);
+        assert(nvs_sound_volume_set(101)==ESP_ERR_INVALID_ARG&&nvs_sound_volume_get()==100);
+        fail_volume_write=true;
+        assert(nvs_sound_volume_set(20)==ESP_FAIL&&nvs_sound_volume_get()==100);
+        fail_volume_write=false;
+        assert(nvs_get_u8(1,"soundvol",&saved)==ESP_OK&&saved==100);
+        assert(nvs_set_u8(1,"soundvol",255)==ESP_OK);
+        assert(nvs_storage_init()==ESP_OK&&nvs_sound_volume_get()==60);
+        assert(!memcmp(&original,nvs_cfg_get(),sizeof(original)));
+        assert(!memcmp(&ring,nvs_status_ring_get(),sizeof(ring)));
+        unsigned char after_blob[512];size_t after_size=sizeof(after_blob);
+        assert(nvs_get_blob(1,"settings",after_blob,&after_size)==ESP_OK);
+        assert(after_size==old_size&&!memcmp(old_blob,after_blob,old_size));
+        puts("PASS: cue volume defaults/0/100/reload/invalid/save failure; unchanged settings blob and ring; no duplicate writes");return 0;
+    }
     if (!strcmp(mode,"temperature_migrate") || !strcmp(mode,"temperature_off")) {
         bool adopted=!strcmp(mode,"temperature_migrate");
         assert(nvs_chart_alarm_get(0)==118&&nvs_chart_alarm_get(8)==95&&nvs_chart_alarm_get(11)==1600);

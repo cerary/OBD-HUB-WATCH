@@ -66,6 +66,11 @@ esp_err_t nvs_storage_init(void);
 const nvs_user_cfg_t * nvs_cfg_get(void);
 esp_err_t nvs_cfg_set(const nvs_user_cfg_t *cfg);
 
+// Separate key: do not change the layout of existing vehicle/IMU settings.
+// 0 = silent, 100 = maximum; missing/invalid storage defaults to 60.
+uint8_t nvs_sound_volume_get(void);
+esp_err_t nvs_sound_volume_set(uint8_t percent);
+
 // Separate blob: preserves the existing user/vehicle/CX configuration layout.
 const status_ring_config_t *nvs_status_ring_get(void);
 esp_err_t nvs_status_ring_set(const status_ring_config_t *cfg);
