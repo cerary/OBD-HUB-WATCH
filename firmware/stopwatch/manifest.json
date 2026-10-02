@@ -4,13 +4,13 @@
   "date": "2026-10-02",
   "kind": "application-and-bootmedia",
   "app": {
-    "file": "OBD-HUB-WATCH-v1.0-20261002-needle-dial-app.bin",
+    "file": "OBD-HUB-WATCH-v1.0-20261002-needle-dial-short-app.bin",
     "size": 2593856,
-    "sha256": "4ffcc2b45e6e1ebe8afc5dfd16ff148b9fd361f24eda71134ffa73304c954982",
+    "sha256": "544c637517114448b058604b1c88c5d0ea7e0c611b4f68b62df20436ea9b99a8",
     "partition_size": 3145728,
     "flash_offset": "0x20000"
   },
-  "build_git_head": "809d0b742d147706ad6edcd19d87a9ddb427f291",
+  "build_git_head": "60626f62c8efbd72e4570eec6f8372dd523710e8",
   "build_dirty": true,
   "upstream_base": "528f54243ea1fe6f5e698291843ba3840e32efe5",
   "idf": "5.5.4",
@@ -32,7 +32,7 @@
     "fatal_errors": 0
   },
   "settings_preserved": true,
-  "latest_physical_ui_acceptance": "User reports needle page needs further adjustment; details pending",
+  "latest_physical_ui_acceptance": "User confirmed shortened red needle length and spacing are suitable; display normal",
   "live_lp_alert_validation": false,
   "rear_wireless_5v_physical_validation": false,
   "source_sha256": {
@@ -145,7 +145,7 @@
     "main/export_path/screens/ui_ScreenPageIntro.c": "f233b2193963437564d071f9aac3292b07162ebd3f904b189d6198ff04918410",
     "main/export_path/screens/ui_ScreenPageLogo.c": "f303ff62d71d12fff5769b6611b7f82356834d8dd2da59d4ca8c7ed5cb4474da",
     "main/export_path/screens/ui_ScreenPageMultiGauge.c": "0c99ff9473877cda923bc2dd7f54f6fc63ab4ad541cac67e1522cb1421c0215f",
-    "main/export_path/screens/ui_ScreenPageNeedle.c": "fb78bd027db23aeb31728776bc9bd2ed982ac7521a99edb6e7a7e551b403019b",
+    "main/export_path/screens/ui_ScreenPageNeedle.c": "c9e1d6005f5ec045723f4eeea1bba438e1dee5a7f4345f9a9d8c0759e662c6c0",
     "main/export_path/screens/ui_ScreenPageODBProtocal.c": "287277320d14c282e6f29f8a133007d350cebb0c3624e2abf14b9358c0aa2e68",
     "main/export_path/screens/ui_ScreenPageOilPressure.c": "3ecbd96e587fcacb3cf31ea24561f6f27bee0164007aba091a44f81896d2d0e0",
     "main/export_path/screens/ui_ScreenPageOilWarn.c": "72f6c23af754b6edc96548fc65e7d9aa7d31b9a7b890b303ec76265e6c96da5e",
@@ -179,9 +179,9 @@
     "main/export_path/ui_data_entry.h": "3032e722a20da0a8f3e25d42ae77d8540565ff3b9cea7afbd4221da3c67034e2"
   },
   "source_hash_format": "SHA-256 of source bytes with CRLF normalized to LF",
-  "build_project_version": "809d0b7-dirty",
-  "source_commit": "b6307cef2b11523617f2fba3f8b189cbc6a1016f",
-  "flashed_at": "2026-10-02T17:19:10.543960+08:00",
+  "build_project_version": "60626f6-dirty",
+  "source_commit": "e6cbceaacf56144a2d6728d9286c94df7947c3d9",
+  "flashed_at": "2026-10-02T17:28:49.621504+08:00",
   "charge_led_boot_validation": "CHRG active for 5243ms before ON; five short charging pulses ignored; OFF 8ms after release",
   "charge_led_usb_charging_on_readback_observed": true,
   "charge_led_visible_behavior_validation": false,
@@ -192,9 +192,9 @@
     "main/stopwatch/charge_led_policy.h"
   ],
   "previous_app": {
-    "file": "OBD-HUB-WATCH-v1.0-20261002-data-entry-app.bin",
-    "size": 2593808,
-    "sha256": "a48a738895f51437c7ca58c66e58657dfe7ba663503d72ce1448194ccce5859e",
+    "file": "OBD-HUB-WATCH-v1.0-20261002-needle-dial-app.bin",
+    "size": 2593856,
+    "sha256": "4ffcc2b45e6e1ebe8afc5dfd16ff148b9fd361f24eda71134ffa73304c954982",
     "partition_size": 3145728,
     "flash_offset": "0x20000"
   },
@@ -259,8 +259,19 @@
     "major_tick_length_px": 14,
     "minor_tick_width_px": 2,
     "minor_tick_length_px": 9,
-    "approved_preview_pixel_match": true,
+    "needle_radius_modifier": -19,
+    "approx_needle_major_tick_gap_px": 5,
+    "dial_layout_retained": true,
     "actual_lvgl_regressions": "passed",
-    "physical_validation": "User reports further adjustments needed; details pending"
+    "physical_validation": "passed: user confirmed needle length and spacing suitable, display normal",
+    "major_tick_alignment_pixel_measurement": {
+      "dial_radius_px": 213,
+      "major_tick_length_px": 14,
+      "needle_radius_modifier": -19,
+      "nominal_tip_gap_px": 5,
+      "first_red_pixel_y": 39,
+      "last_major_tick_pixel_y": 33,
+      "blank_pixel_rows": 5
+    }
   }
 }

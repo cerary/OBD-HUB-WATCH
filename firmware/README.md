@@ -1,10 +1,10 @@
 # Firmware — StopWatch C152 V1.0
 
-The current application is [stopwatch/OBD-HUB-WATCH-v1.0-20261002-needle-dial-app.bin](stopwatch/OBD-HUB-WATCH-v1.0-20261002-needle-dial-app.bin), with [manifest](stopwatch/manifest.json) and [SHA-256](stopwatch/SHA256SUMS).
+The current application is [stopwatch/OBD-HUB-WATCH-v1.0-20261002-needle-dial-short-app.bin](stopwatch/OBD-HUB-WATCH-v1.0-20261002-needle-dial-short-app.bin), with [manifest](stopwatch/manifest.json) and [SHA-256](stopwatch/SHA256SUMS).
 
 It is the exact app independently verified and boot-checked on 2026-10-02. It includes all README UI changes. The UI / vehicle acceptance test is still in progress; real LP ALERT delivery and rear wireless-5V wake remain pending.
 
-The needle dial is 426px across with zero widget padding, leaving about 5px inside the status ring. Numerals use the 24-size project font; major ticks are 3×14px and minor ticks 2×9px, with separate grey levels. The production LVGL frame matches the approved proposal pixel for pixel. The user reported further layout adjustments are needed; details are pending.
+The needle dial is 426px across with zero widget padding, leaving about 5px inside the status ring. Numerals use the 24-size project font; major ticks are 3×14px and minor ticks 2×9px, with separate grey levels. The needle is shortened by 9px to leave 5px inside the major ticks. A rendered alignment frame has five blank pixel rows between tip and tick; the user confirmed the corrected needle length and spacing are suitable, with normal display.
 
 Data pages now initialize with `--` and render fresh cached values before their first visible frame. Genuine `0/N` readings are retained. Actual LVGL tests, the full build, independent flash verification and the 35-second boot check passed; the user confirmed direct `--` with no jump on first entry after restart.
 
