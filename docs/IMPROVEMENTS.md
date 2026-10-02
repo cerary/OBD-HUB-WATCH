@@ -12,7 +12,7 @@
 | 不反复唤醒 CX | QUIET / SLEEPING 时停止命令与自动重连；处理 `LP ALERT`；无提示时使用经过配置验证的静默超时兜底 | `cx_power_policy.c`、`elm327_ble_client.c` |
 | 两路外部供电 | USB VIN 或 V1.0 PMG4 背面 5V 检测；确认 CX 休眠后供电消失 3 秒进入 PMIC L0；验证唤醒寄存器，失败不关机 | `stopwatch_board.cpp` |
 | 充电指示灯 | PMIC GPIO2 CHRG 低电平且 USB / 背面 5V 存在才亮；充满 / 电池供电时灭；500ms 全页面更新，仅修改 LED 位并回读；保留充电电流与电源轨配置 | `stopwatch_board.cpp`、`main/app_main.c` |
-| 充电灯稳定确认（源码新增，待刷机） | CHRG 持续有效 5 秒才点亮；短脉冲不累计；充电结束、外部供电移除、状态未知立即清除；采样断档重新确认；电池电压仅记录诊断，不拿估算电量替代充电状态 | `stopwatch/charge_led_policy.h`、`stopwatch_board.cpp`、`tools/test_charge_led.c` |
+| 充电灯稳定确认（已刷机） | CHRG 持续有效 5 秒才点亮；短脉冲不累计；充电结束、外部供电移除、状态未知立即清除；采样断档重新确认。USB 实测 5243ms 后亮、CHRG 释放后 8ms 熄灭，五次 1～3.5 秒变化未点灯；用户确认按键 / 切页后实灯保持熄灭。电池电压仅作诊断 | `stopwatch/charge_led_policy.h`、`stopwatch_board.cpp`、`tools/test_charge_led.c` |
 | 断联清空 | 清空所有通道、RPM 覆盖、平滑状态与时间戳；显示缺失不能冒充 ECU 的真实零读数 | `obd_data_cache.c`、`elm327_ble_client.c` |
 | 数据时效 | RPM / SPD 5 秒、其他通道 15 秒；每项独立判断；真实零有效；过期车速不统计里程 | `obd_data_cache.c`、`ui.c`、`ui_disp_item.c` |
 | AFR 持久化 | index 11 在 Needle / Chart 重启后保留；默认 AFR 报警 OFF；兼容旧 11 项 blob，保留自定义合法阈值 | `nvs_storage.c` |

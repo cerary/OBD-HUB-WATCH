@@ -4,13 +4,13 @@
   "date": "2026-10-02",
   "kind": "application-and-bootmedia",
   "app": {
-    "file": "OBD-HUB-WATCH-v1.0-20261002-jcw-startup-app.bin",
-    "size": 2592032,
-    "sha256": "44b26d7f4b32497a8b09a4f0c5d402e9c558c87b19a78f9ca7f111d31c9a0380",
+    "file": "OBD-HUB-WATCH-v1.0-20261002-charge-led-stable-app.bin",
+    "size": 2592480,
+    "sha256": "460641ca38b94f48b26ce8a9c523033ad820a6adb24668f77bdb104bbcb45aec",
     "partition_size": 3145728,
     "flash_offset": "0x20000"
   },
-  "build_git_head": "afab0051d17a08aad5bee83e2c833f40cec5837c",
+  "build_git_head": "e17a46d8a147c22bc368cb184d8944d5766e12c4",
   "build_dirty": true,
   "upstream_base": "528f54243ea1fe6f5e698291843ba3840e32efe5",
   "idf": "5.5.4",
@@ -21,14 +21,17 @@
     "elf_hash_matches": true,
     "display_ready": true,
     "lvgl_started": true,
-    "animation_ready": true,
-    "native_player_ready": true,
-    "complete_animation": true,
-    "external_power_readable": true,
-    "single_boot": true,
+    "power_readable": true,
+    "rear_wake_verified": true,
+    "cx_feature_started": true,
+    "initial_led_off_verified": true,
+    "stable_charge_monitor_started": true,
+    "led_control_no_fault": true,
+    "selected_intro_mode_ok": true,
+    "single_app_boot": true,
     "fatal_errors": 0
   },
-  "settings_preserved": false,
+  "settings_preserved": true,
   "latest_physical_ui_acceptance": "pending user test",
   "live_lp_alert_validation": false,
   "rear_wireless_5v_physical_validation": false,
@@ -103,8 +106,8 @@
     "main/export_path/ui_theme_generated.c": "3865484b30a6fcbd4dfc6595b7a12f544e23cd5f64cc7264a98a57b8d22c5140",
     "main/stopwatch/cst820.cpp": "7b39e1944843c6a3ff4df3a136c091f4db239a382d019389c074705d859b8408",
     "main/stopwatch/cst820.h": "a3cf74c35316ede0f06cee5e3420c314e620129fcc84d3379d1cdbaa02250872",
-    "main/stopwatch/stopwatch_board.cpp": "b5f9930489fac38faf3fada1a80750c6f6eca19fe16e5f449b1efd8ebff5168c",
-    "main/stopwatch/stopwatch_board.h": "8d4dc92c2257f793c16726e9c19f9428bd89bc95f483ff41fd9a3dfed0c0887d",
+    "main/stopwatch/stopwatch_board.cpp": "601744ff782e7e348ed8103ef459725e9f212af5dd6091b86afcb58b278f0681",
+    "main/stopwatch/stopwatch_board.h": "195fd55cac7f00605fd2c25883b855218e0b4ae5098641b256c1218c7c7bc1a4",
     "main/theme_engine/PROTECTED_PAGES.md": "4d341513021a4e87da645da5b3e0bd4c4548840f3936f70bc14c47fc129219b6",
     "main/theme_engine/theme_interface.h": "e80093229710601a570026d352b10974a51de2e18d3a9850df81c2f671083712",
     "main/theme_engine/theme_loader.c": "ec38688ba61b29398d197b2ad1158b8850f150562712acd5987de31f24013ace",
@@ -170,25 +173,26 @@
     "main/bsp_obd_dsp/lcd_driver/esp_lcd_st77916/esp_lcd_st77916.h": "21f444cdc25ed1ceec379fe91fb5fd09d31ef179a946c9a7bd6f67d2e3599bfa",
     "sdkconfig.stopwatch": "8b7245ec0a0eff0cfedb11ba68bf8d914b25182a1c6783502c21d886bece4f24",
     "CMakeLists.txt": "665bed36e2294e1c97b2a13cb5ef3af77140546137edb156f0dd37347dc498d7",
-    "main/app_obd_dsp/project_identity.h": "ad80035320532a282b539ddc1195f6b713331c061fb950a692a9b89d31be419c"
+    "main/app_obd_dsp/project_identity.h": "ad80035320532a282b539ddc1195f6b713331c061fb950a692a9b89d31be419c",
+    "main/stopwatch/charge_led_policy.h": "a2d75eb4f7ccb5781db39716f80ae8fd9d39c9523306817d2af2b18cfdca336b"
   },
   "source_hash_format": "SHA-256 of source bytes with CRLF normalized to LF",
-  "build_project_version": "afab005-dirty",
-  "source_commit": "a4b9ab40afd423f42aa8c672354e8c146b675db7",
-  "flashed_at": "2026-10-02T04:54:03.765487+08:00",
-  "charge_led_boot_validation": "Initial OFF register readback and monitor startup passed",
+  "build_project_version": "e17a46d-dirty",
+  "source_commit": "84a4fc04db787ecd36eb70e2d741d30670193f44",
+  "flashed_at": "2026-10-02T15:48:05.352686+08:00",
+  "charge_led_boot_validation": "CHRG active for 5243ms before ON; five short charging pulses ignored; OFF 8ms after release",
   "charge_led_usb_charging_on_readback_observed": true,
   "charge_led_visible_behavior_validation": false,
-  "charge_led_charging_transition_validation": false,
+  "charge_led_charging_transition_validation": true,
   "charge_led_source_changed_files": [
-    "main/app_main.c",
     "main/stopwatch/stopwatch_board.cpp",
-    "main/stopwatch/stopwatch_board.h"
+    "main/stopwatch/stopwatch_board.h",
+    "main/stopwatch/charge_led_policy.h"
   ],
   "previous_app": {
-    "file": "OBD-HUB-WATCH-v1.0-20261002-charge-led-app.bin",
-    "size": 2591328,
-    "sha256": "10027729217868efd61db2d85aff26a81761ca1fe34f60a6bc5fc2a3a588444b",
+    "file": "OBD-HUB-WATCH-v1.0-20261002-jcw-startup-app.bin",
+    "size": 2592032,
+    "sha256": "44b26d7f4b32497a8b09a4f0c5d402e9c558c87b19a78f9ca7f111d31c9a0380",
     "partition_size": 3145728,
     "flash_offset": "0x20000"
   },
@@ -206,13 +210,32 @@
     "fps": 30,
     "frames": 190
   },
-  "setting_changes": {
-    "INTRO": {
-      "before": "RACE",
-      "after": "VIDEO"
-    }
-  },
+  "setting_changes": {},
   "other_nvs_settings_preserved": true,
-  "animation_elapsed_ms": 6279,
-  "visible_animation_physical_validation": false
+  "visible_animation_physical_validation": false,
+  "bootmedia_preserved": true,
+  "installed_intro_mode": 0,
+  "video_playback_observed": false,
+  "charge_led_confirmation_ms": 5000,
+  "charge_led_page_button_visible_validation": true,
+  "charge_led_stability_validation": {
+    "continuous_charge_on_delay_ms": [
+      5243
+    ],
+    "ignored_short_charge_durations_ms": [
+      3501,
+      1501,
+      1016,
+      2051,
+      1999
+    ],
+    "charge_end_led_off_delay_ms": [
+      8
+    ],
+    "page_feedback_events": 13,
+    "user_visible_test": "User confirmed lamp stays OFF after page changes / button presses",
+    "usb_charging_state_and_register_transitions_verified": true,
+    "rear_5v_and_battery_only_physical_tested": false,
+    "supplemental_60s_capture": "interrupted by a Windows serial read error; original 35s boot log retained"
+  }
 }
