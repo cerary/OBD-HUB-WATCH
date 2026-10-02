@@ -4,7 +4,36 @@ Newest first. Entries cover behaviour and flashing changes; pure refactors and
 comment cleanups are left to the git history.
 最新的在最上面。这里只记录行为变化和烧录方式变化，纯重构和注释整理请查 git 历史。
 
+## 2026-10-02 — OBD HUB WATCH / StopWatch V1.0
+
+本次更新汇总前次 GitHub 同步后的改动。当前已刷应用版本为 `73e5883`，
+适用硬件 **M5Stack StopWatch C152 V1.0**；完整说明及验证范围见
+[本次发布说明](docs/releases/2026-10-02-stopwatch.md)。
+
+- 修复档位估算中重复乘入终传比的问题；JCW 按车主 215/40 R18 PS5 基准计算，使用平滑前车速，失配保留旧档最多 1 秒后显示 `--`。997 组独立样例覆盖 18 个实际车型配置。
+- 增加 CLT / OIL / IAT 两级温度颜色提醒，含持续时间确认、恢复温差、断联及过期清除；沿用原生 ALARM / OFF 设置。
+- JCW 转速 / 车速显示范围调整为 0–7000 rpm / 0–280 km/h；BST 刻度及报警统一按 bar 显示，电压 / AFR 指针保留小数精度。
+- 放大并提亮指针页刻度；指针尖端距主刻度内端约 5px，已获实屏确认。
+- 数据页首次进入直接显示有效缓存或 `--`，消除先闪 `0/N` 的跳变，已获用户确认。
+- 充电灯跟随真实充电信号，连续有效 5 秒才亮；短脉冲不累积，充电结束 / 电源消失 / 未知状态清除。用户确认切页和按键后实灯保持熄灭。
+- 支持原生 466×466 RGB565 v3 动画，兼容旧格式；JCW 动画约 6.33 秒，保持圆形背景、稳定徽标并修复中心暗斑。
+- 当前固件独立刷写校验、35 秒启动及最终重启检查通过；22 个逻辑 NVS 键与开机动画资源保留。档位实车对照、温度触发、真实 `LP ALERT` 和背面无线 5V 待机 / 唤醒仍待验证。
+
+### English summary
+
+Corrected duplicate final-drive conversion in gear estimation, added two-stage temperature advisories,
+aligned JCW display ranges and decimal units, improved needle geometry and first-frame data display,
+stabilized the actual-charging LED, and added native-resolution v3 JCW startup playback.
+The installed `73e5883` application passed host/LVGL regressions, independent flash verification and boot checks.
+All 22 logical NVS keys and bootmedia were preserved; vehicle and rear wireless-power acceptance remains pending.
+
 ---
+
+## Preserved upstream history / 保留的上游历史
+
+以下为上游原有更新记录，包含其他板型及历史分区布局。
+StopWatch V1.0 的当前固件和地址以 [固件说明](firmware/README.md) 与
+[当前清单](firmware/stopwatch/manifest.json) 为准。
 
 ## English
 

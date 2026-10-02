@@ -2,6 +2,8 @@
 
 The current application is [stopwatch/OBD-HUB-WATCH-v1.0-20261002-gear-fix-app.bin](stopwatch/OBD-HUB-WATCH-v1.0-20261002-gear-fix-app.bin), with [manifest](stopwatch/manifest.json) and [SHA-256](stopwatch/SHA256SUMS).
 
+The independent [JCW bootmedia resource](stopwatch/bootmedia.raw.bin) is available with the matching v3-compatible application. See [animation settings and partition requirements](../docs/BOOT-ANIMATION.md). The [2026-10-02 Release](https://github.com/cerary/OBD-HUB-WATCH/releases/tag/stopwatch-20261002) also provides the current files as download attachments.
+
 It is the exact app independently verified and boot-checked on 2026-10-02. It includes all README UI changes. The UI / vehicle acceptance test is still in progress; real LP ALERT delivery and rear wireless-5V wake remain pending.
 
 Gear estimation now uses consistent total ratios and the owner's 215/40R18 PS5 nominal tire radius of 0.3146 m. The ratio uses speed before display smoothing, and unmatched gears expire to `--` after 1 second. Independent circumference tests covered 997 cases across 18 profiles; actual LVGL, flash verification and startup checks passed. All 22 logical NVS keys and the JCW boot-animation resource were preserved. Actual shift accuracy still needs vehicle comparison; stationary N remains a placeholder.

@@ -16,3 +16,5 @@
 ## UI and vehicle branding
 
 Inherited fonts, SquareLine-generated UI and theme assets retain their original notices. MINI / JOHN COOPER WORKS / GP3 logos identify selected vehicle profiles and are not OBD HUB WATCH branding or evidence of endorsement. The JCW asset source is [MINI Spain's JCW GP page](https://www.mini.es/es_ES/home/range/mini-jcw-gp.html); the GP3 reference is documented in the historical StopWatch port notes. This repository does not claim ownership or a blanket GPL license over third-party trademarks and reference photographs. See [the asset provenance notes](docs/STOPWATCH_PORT.md).
+
+The JCW startup resource is reconstructed from the owner-selected [NBT BMW MINI John Cooper Works Startup Animation](https://www.youtube.com/watch?v=LdM9xwQ3OXY), uploaded by Sergio Bezruk. The round-screen adaptation rebuilds the background and stabilizes the badge; original vehicle branding and reference-video rights remain with their respective owners and are not covered by a blanket GPL claim. Source, conversion format and playback checks are documented in [BOOT-ANIMATION.md](docs/BOOT-ANIMATION.md).
