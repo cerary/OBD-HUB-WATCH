@@ -162,8 +162,18 @@ bool imu_ready = false;
 TaskHandle_t feedback_task_handle = nullptr;
 esp_codec_dev_handle_t sound_codec = nullptr;
 i2s_chan_handle_t sound_tx = nullptr;
-bool sound_init_attempted = false;
+const audio_codec_data_if_t *sound_data_if = nullptr;
+const audio_codec_ctrl_if_t *sound_ctrl_if = nullptr;
+const audio_codec_gpio_if_t *sound_gpio_if = nullptr;
+const audio_codec_if_t *sound_codec_if = nullptr;
+uint64_t sound_retry_after_us = 0;
 bool sound_ready = false;
+constexpr uint32_t SOUND_SAMPLE_RATE = 44100;
+constexpr uint32_t SOUND_TONE_SAMPLES = SOUND_SAMPLE_RATE * 40 / 1000;
+constexpr uint32_t SOUND_DMA_COUNT = 4;
+constexpr uint32_t SOUND_DMA_FRAMES = 256;
+constexpr uint32_t SOUND_DRAIN_SAMPLES = (SOUND_DMA_COUNT + 1) * SOUND_DMA_FRAMES;
+constexpr int SOUND_VOLUME = 60;
 portMUX_TYPE feedback_lock = portMUX_INITIALIZER_UNLOCKED;
 uint8_t pending_feedback = 0;
 bool explicit_feedback_for_press = false;
@@ -196,55 +206,150 @@ void bmi_delay_us(uint32_t us, void *) {
     else esp_rom_delay_us(us);
 }
 
+bool set_speaker_amplifier(bool enabled) {
+    m5ioe1_err_t err = M5IOE1_OK;
+    // AW8737A is gated by both the IO expander and ESP GPIO14.
+    gpio_set_level(GPIO_NUM_14, enabled ? 1 : 0);
+    ioe.digitalWriteWithRes(M5IOE1_PIN_10, enabled ? 1 : 0, &err);
+    if (err == M5IOE1_OK) {
+        const int level = ioe.digitalReadWithRes(M5IOE1_PIN_10, &err);
+        if (err == M5IOE1_OK && level == (enabled ? 1 : 0)) return true;
+    }
+    gpio_set_level(GPIO_NUM_14, 0);
+    ioe.digitalWrite(M5IOE1_PIN_10, 0);
+    ESP_LOGE(TAG, "[AUDIO] amplifier %s failed: IOE=%d", enabled ? "ON" : "OFF", (int)err);
+    return false;
+}
+
+void release_sound(void) {
+    sound_ready = false;
+    if (sound_codec) { esp_codec_dev_delete(sound_codec); sound_codec = nullptr; }
+    if (sound_codec_if) { audio_codec_delete_codec_if(sound_codec_if); sound_codec_if = nullptr; }
+    if (sound_ctrl_if) { audio_codec_delete_ctrl_if(sound_ctrl_if); sound_ctrl_if = nullptr; }
+    if (sound_gpio_if) { audio_codec_delete_gpio_if(sound_gpio_if); sound_gpio_if = nullptr; }
+    if (sound_data_if) { audio_codec_delete_data_if(sound_data_if); sound_data_if = nullptr; }
+    if (sound_tx) {
+        i2s_channel_disable(sound_tx);
+        i2s_del_channel(sound_tx);
+        sound_tx = nullptr;
+    }
+}
+
+bool sound_failure(const char *stage, int status) {
+    ESP_LOGE(TAG, "[AUDIO] %s failed: %d; retry allowed after 5s", stage, status);
+    set_speaker_amplifier(false);
+    release_sound();
+    sound_retry_after_us = esp_timer_get_time() + 5000000ULL;
+    return false;
+}
+
 bool init_sound(void) {
-    if (sound_init_attempted) return sound_ready;
-    sound_init_attempted = true;
+    if (sound_ready) return true;
+    if ((uint64_t)esp_timer_get_time() < sound_retry_after_us) return false;
     i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0,I2S_ROLE_MASTER);
-    if (i2s_new_channel(&chan_cfg,&sound_tx,nullptr) != ESP_OK) return false;
+    chan_cfg.dma_desc_num = SOUND_DMA_COUNT;
+    chan_cfg.dma_frame_num = SOUND_DMA_FRAMES;
+    // Silence after underrun, instead of replaying an old cue from the DMA ring.
+    chan_cfg.auto_clear_after_cb = true;
+    int rc = i2s_new_channel(&chan_cfg,&sound_tx,nullptr);
+    if (rc != ESP_OK) return sound_failure("I2S allocation",rc);
     i2s_std_config_t std_cfg = {};
-    std_cfg.clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(44100);
+    std_cfg.clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(SOUND_SAMPLE_RATE);
     std_cfg.slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT,I2S_SLOT_MODE_STEREO);
     std_cfg.gpio_cfg.mclk = GPIO_NUM_18;
     std_cfg.gpio_cfg.bclk = GPIO_NUM_17;
     std_cfg.gpio_cfg.ws = GPIO_NUM_15;
     std_cfg.gpio_cfg.dout = GPIO_NUM_21;
     std_cfg.gpio_cfg.din = GPIO_NUM_NC;
-    if (i2s_channel_init_std_mode(sound_tx,&std_cfg) != ESP_OK ||
-        i2s_channel_enable(sound_tx) != ESP_OK) return false;
+    rc = i2s_channel_init_std_mode(sound_tx,&std_cfg);
+    if (rc != ESP_OK) return sound_failure("I2S setup",rc);
+    rc = i2s_channel_enable(sound_tx);
+    if (rc != ESP_OK) return sound_failure("I2S start",rc);
+    // esp_codec_dev_open stops TX, configures the mono slots, then restarts it.
     audio_codec_i2s_cfg_t data_cfg = {};
     data_cfg.tx_handle = sound_tx;
-    const audio_codec_data_if_t *data_if = audio_codec_new_i2s_data(&data_cfg);
+    sound_data_if = audio_codec_new_i2s_data(&data_cfg);
+    if (!sound_data_if) return sound_failure("I2S data interface",ESP_ERR_NO_MEM);
     audio_codec_i2c_cfg_t i2c_cfg = {};
     i2c_cfg.addr = ES8311_CODEC_DEFAULT_ADDR;
     i2c_cfg.bus_handle = i2c_bus;
-    const audio_codec_ctrl_if_t *ctrl_if = audio_codec_new_i2c_ctrl(&i2c_cfg);
-    const audio_codec_gpio_if_t *gpio_if = audio_codec_new_gpio();
+    sound_ctrl_if = audio_codec_new_i2c_ctrl(&i2c_cfg);
+    if (!sound_ctrl_if) return sound_failure("ES8311 I2C interface",ESP_ERR_NO_MEM);
+    sound_gpio_if = audio_codec_new_gpio();
+    if (!sound_gpio_if) return sound_failure("codec GPIO interface",ESP_ERR_NO_MEM);
     es8311_codec_cfg_t codec_cfg = {};
-    codec_cfg.ctrl_if=ctrl_if;
-    codec_cfg.gpio_if=gpio_if;
+    codec_cfg.ctrl_if=sound_ctrl_if;
+    codec_cfg.gpio_if=sound_gpio_if;
     codec_cfg.codec_mode=ESP_CODEC_DEV_WORK_MODE_DAC;
     codec_cfg.pa_pin=GPIO_NUM_NC;
     codec_cfg.use_mclk=true;
-    const audio_codec_if_t *codec_if=es8311_codec_new(&codec_cfg);
+    sound_codec_if=es8311_codec_new(&codec_cfg);
+    if (!sound_codec_if) return sound_failure("ES8311 initialization",ESP_CODEC_DEV_DRV_ERR);
     esp_codec_dev_cfg_t dev_cfg = {};
     dev_cfg.dev_type=ESP_CODEC_DEV_TYPE_OUT;
-    dev_cfg.codec_if=codec_if;
-    dev_cfg.data_if=data_if;
+    dev_cfg.codec_if=sound_codec_if;
+    dev_cfg.data_if=sound_data_if;
     sound_codec=esp_codec_dev_new(&dev_cfg);
-    if (!sound_codec) return false;
+    if (!sound_codec) return sound_failure("codec device",ESP_ERR_NO_MEM);
     esp_codec_dev_sample_info_t format = {};
     format.bits_per_sample=16;
     format.channel=1;
-    format.sample_rate=44100;
-    if (esp_codec_dev_open(sound_codec,&format) != ESP_OK) return false;
-    esp_codec_dev_set_out_vol(sound_codec,18);
+    format.sample_rate=SOUND_SAMPLE_RATE;
+    rc = esp_codec_dev_open(sound_codec,&format);
+    if (rc != ESP_CODEC_DEV_OK) return sound_failure("codec open",rc);
+    // The default codec curve maps 18 to -41 dB, making a short cue inaudible.
+    rc = esp_codec_dev_set_out_vol(sound_codec,SOUND_VOLUME);
+    if (rc != ESP_CODEC_DEV_OK) return sound_failure("codec volume",rc);
+    rc = esp_codec_dev_set_out_mute(sound_codec,false);
+    if (rc != ESP_CODEC_DEV_OK) return sound_failure("codec unmute",rc);
+    int mute_reg=0,volume_reg=0;
+    rc = esp_codec_dev_read_reg(sound_codec,0x31,&mute_reg);
+    if (rc != ESP_CODEC_DEV_OK || (mute_reg & 0x60))
+        return sound_failure("DAC unmute readback",rc == ESP_CODEC_DEV_OK ? ESP_FAIL : rc);
+    rc = esp_codec_dev_read_reg(sound_codec,0x32,&volume_reg);
+    if (rc != ESP_CODEC_DEV_OK) return sound_failure("DAC volume readback",rc);
     sound_ready=true;
+    ESP_LOGI(TAG, "[AUDIO] ES8311 ready: %luHz mono vol=%d DMA=%lux%lu; cue=40ms DAC31=%02X DAC32=%02X",
+             (unsigned long)SOUND_SAMPLE_RATE,SOUND_VOLUME,
+             (unsigned long)SOUND_DMA_COUNT,(unsigned long)SOUND_DMA_FRAMES,
+             mute_reg,volume_reg);
     return true;
 }
 
+void play_feedback_sound(uint8_t kind, int16_t *pcm) {
+    if (!init_sound() || !set_speaker_amplifier(true)) return;
+    const int64_t amplifier_start = esp_timer_get_time();
+    vTaskDelay(pdMS_TO_TICKS(10));
+    const int64_t write_start = esp_timer_get_time();
+    int rc = esp_codec_dev_write(sound_codec,pcm,SOUND_TONE_SAMPLES*sizeof(int16_t));
+    const int64_t write_end = esp_timer_get_time();
+    // write() only copies into DMA. Keep the PA on while more than one full
+    // DMA ring of silence passes through; every tone frame has then left TX.
+    static int16_t silence[SOUND_DRAIN_SAMPLES] = {};
+    if (rc == ESP_CODEC_DEV_OK)
+        rc = esp_codec_dev_write(sound_codec,silence,sizeof(silence));
+    vTaskDelay(pdMS_TO_TICKS(5)); // codec/filter settling before power gating
+    const bool amplifier_off = set_speaker_amplifier(false);
+    if (rc != ESP_CODEC_DEV_OK) {
+        sound_failure("cue write/drain",rc);
+        return;
+    }
+    ESP_LOGI(TAG, "[AUDIO] cue=%u OK: write=%lldus PA=%lldms drain=%lu samples off=%s",
+             kind,(long long)(write_end-write_start),
+             (long long)((esp_timer_get_time()-amplifier_start)/1000),
+             (unsigned long)SOUND_DRAIN_SAMPLES,amplifier_off ? "verified" : "FAILED");
+}
+
 void feedback_task(void *) {
-    static int16_t pcm[882]; // 20 ms, 44.1 kHz mono
-    for (int i=0;i<882;++i) pcm[i]=(int16_t)(5500.f*sinf(6.2831853f*660.f*i/44100.f));
+    static int16_t pcm[SOUND_TONE_SAMPLES];
+    constexpr uint32_t fade_samples = SOUND_SAMPLE_RATE * 3 / 1000;
+    for (uint32_t i=0;i<SOUND_TONE_SAMPLES;++i) {
+        float envelope=1.f;
+        if (i<fade_samples) envelope=(float)i/fade_samples;
+        else if (i>=SOUND_TONE_SAMPLES-fade_samples)
+            envelope=(float)(SOUND_TONE_SAMPLES-1-i)/fade_samples;
+        pcm[i]=(int16_t)(5500.f*envelope*sinf(6.2831853f*660.f*i/SOUND_SAMPLE_RATE));
+    }
     for (;;) {
         ulTaskNotifyTake(pdTRUE,portMAX_DELAY);
         // Touch release reaches the driver just before LVGL emits CLICKED,
@@ -258,24 +363,16 @@ void feedback_task(void *) {
         const nvs_user_cfg_t *cfg=nvs_cfg_get();
         bool haptic=cfg->touch_haptic_enabled;
         bool sound=cfg->touch_sound_enabled;
-        if (sound && !sound_ready) init_sound();
         const uint8_t duty=kind==STOPWATCH_FEEDBACK_PAGE ? 80 : 55;
         const uint32_t pulse_ms=kind==STOPWATCH_FEEDBACK_PAGE ? 35 : 20;
-        int64_t motor_start=esp_timer_get_time();
-        if (haptic) ioe.setPwmDuty(0,duty,false,true);
-        if (sound && sound_ready) {
-            ioe.digitalWrite(M5IOE1_PIN_10,1);
-            gpio_set_level(GPIO_NUM_14,1);
-            vTaskDelay(pdMS_TO_TICKS(8));
-            esp_codec_dev_write(sound_codec,pcm,sizeof(pcm));
-            gpio_set_level(GPIO_NUM_14,0);
-            ioe.digitalWrite(M5IOE1_PIN_10,0);
-        }
         if (haptic) {
-            int64_t remaining_us=(int64_t)pulse_ms*1000-(esp_timer_get_time()-motor_start);
-            if (remaining_us>0) vTaskDelay(pdMS_TO_TICKS((remaining_us+999)/1000));
+            ioe.setPwmDuty(0,duty,false,true);
+            vTaskDelay(pdMS_TO_TICKS(pulse_ms));
             ioe.setPwmDuty(0,0,false,true);
         }
+        // Finish the vibration independently; codec setup/draining must not
+        // extend a 20/35ms motor pulse. Both run outside the LVGL task.
+        if (sound) play_feedback_sound(kind,pcm);
     }
 }
 }
@@ -541,7 +638,7 @@ extern "C" bool stopwatch_board_shutdown(void) {
     ESP_LOGI(TAG, "[POWER] external 5V absent for 3s after CX sleep; entering PMIC L0");
     if (pmic.ldoSetPowerHold(false) != M5PM1_OK) goto failed;
     display.setPanelBrightness(0);
-    ioe.digitalWrite(M5IOE1_PIN_10, LOW);
+    set_speaker_amplifier(false);
     ioe.digitalWrite(M5IOE1_PIN_3, LOW);
     ioe.digitalWrite(M5IOE1_PIN_8, LOW);
     if (pmic.shutdown() == M5PM1_OK) {
