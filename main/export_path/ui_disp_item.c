@@ -4,6 +4,7 @@
 
 #include "ui_disp_item.h"
 #include "bsp_obd_dsp/nvs_storage.h"
+#include "app_obd_dsp/vehicle_profiles.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -26,8 +27,8 @@ const disp_item_meta_t s_disp_meta[DISP_ITEM_COUNT] = {
     {"AFR", "", 0xFFAA00},
 };
 
-// Needle range per data item: nmin/nmax in natural units (used for both scale labels and needle position);
-// div converts the cached raw value to natural units (BAT: mV→V, OILP/BKT: 0.1 units → integer).
+// Display ranges in natural units; raw = natural * div. The meter uses raw
+// positions, then formats tick text separately so decimal readings stay precise.
 const needle_scale_meta_t s_needle_scale_meta[DISP_ITEM_COUNT] = {
     [DISP_ITEM_CLT]   = {-20, 130, 1},
     [DISP_ITEM_IAT]   = {-20, 100, 1},
@@ -39,7 +40,7 @@ const needle_scale_meta_t s_needle_scale_meta[DISP_ITEM_COUNT] = {
     [DISP_ITEM_BAT]   = {8, 16, 1000},
     [DISP_ITEM_OILP]  = {0, 10, 10},
     [DISP_ITEM_BKT]   = {0, 800, 10},
-    [DISP_ITEM_BOOST] = {0, 20, 1},   // range in 0.1bar: 0 ~ +2.0 bar gauge pressure (negative pressure not displayed)
+    [DISP_ITEM_BOOST] = {0, 2, 10},   // 0..+2.0 bar gauge, separate from the PID 010B acquisition ceiling
     [DISP_ITEM_AFR]   = {8, 22, 100}, // range 8.0~22.0:1, raw value ×100
 };
 
@@ -80,9 +81,8 @@ int32_t disp_item_sweep_value(disp_item_t item, float r)
         case DISP_ITEM_TPS:
             return (int32_t)(100.0f * r);
         case DISP_ITEM_RPM:
-            return (int32_t)(8000.0f * r);   // = SWEEP_RPM_PEAK
         case DISP_ITEM_SPEED:
-            return (int32_t)(999.0f * r);    // = SWEEP_SPEED_PEAK
+            return (int32_t)(ui_disp_item_scale(item)->nmax * r);
         case DISP_ITEM_BAT:
             return (int32_t)(12000.0f + 2400.0f * r); // 12.0~14.4V
         case DISP_ITEM_OILP:
@@ -98,30 +98,34 @@ int32_t disp_item_sweep_value(disp_item_t item, float r)
     }
 }
 
-void disp_item_set_text(lv_obj_t *label, disp_item_t item, int32_t value, bool valid)
+void disp_item_format_value(char *text, size_t size, disp_item_t item, int32_t value)
 {
-    char text[32];
-
-    if (!label) return;
-    if (!valid) {
-        snprintf(text, sizeof(text), "--");
-    } else if (item == DISP_ITEM_BAT) {
-        snprintf(text, sizeof(text), "%d.%d", (int)(value / 1000), (int)((value % 1000) / 100));
+    if (!text || !size) return;
+    if (item == DISP_ITEM_BAT) {
+        snprintf(text, size, "%d.%d", (int)(value / 1000), (int)((value % 1000) / 100));
     } else if (item == DISP_ITEM_OILP) {
         int32_t abs_val = (value < 0) ? -value : value;
-        snprintf(text, sizeof(text), "%d.%d", (int)(value / 10), (int)(abs_val % 10));
+        snprintf(text, size, "%d.%d", (int)(value / 10), (int)(abs_val % 10));
     } else if (item == DISP_ITEM_BKT) {
-        snprintf(text, sizeof(text), "%ld", (long)(value / 10));
+        snprintf(text, size, "%ld", (long)(value / 10));
     } else if (item == DISP_ITEM_BOOST) {
         // gauge pressure can be negative (vacuum); show signed with one decimal, e.g. -0.6 / 1.2
         int32_t a = (value < 0) ? -value : value;
-        snprintf(text, sizeof(text), "%s%d.%d", (value < 0) ? "-" : "", (int)(a / 10), (int)(a % 10));
+        snprintf(text, size, "%s%d.%d", (value < 0) ? "-" : "", (int)(a / 10), (int)(a % 10));
     } else if (item == DISP_ITEM_AFR) {
         // AFR: raw value ×100, displayed as 14.7 (one decimal, same width as BAT/BOOST)
-        snprintf(text, sizeof(text), "%d.%d", (int)(value / 100), (int)((value % 100) / 10));
+        snprintf(text, size, "%d.%d", (int)(value / 100), (int)((value % 100) / 10));
     } else {
-        snprintf(text, sizeof(text), "%ld", (long)value);
+        snprintf(text, size, "%ld", (long)value);
     }
+}
+
+void disp_item_set_text(lv_obj_t *label, disp_item_t item, int32_t value, bool valid)
+{
+    char text[32];
+    if (!label) return;
+    if (valid) disp_item_format_value(text, sizeof(text), item, value);
+    else snprintf(text, sizeof(text), "--");
 
     if (strcmp(lv_label_get_text(label), text) != 0) {
         lv_label_set_text(label, text);
@@ -243,7 +247,7 @@ uint32_t ui_disp_item_color(uint8_t item)
 void ui_disp_item_range(uint8_t item, int32_t *nmin, int32_t *nmax, int32_t *div)
 {
     if (item >= DISP_ITEM_COUNT) item = 0;
-    const needle_scale_meta_t *ns = &s_needle_scale_meta[item];
+    const needle_scale_meta_t *ns = ui_disp_item_scale(item);
     if (nmin) *nmin = ns->nmin;
     if (nmax) *nmax = ns->nmax;
     if (div)  *div  = ns->div;
@@ -251,5 +255,27 @@ void ui_disp_item_range(uint8_t item, int32_t *nmin, int32_t *nmax, int32_t *div
 
 const needle_scale_meta_t *ui_disp_item_scale(disp_item_t item)
 {
+    if ((unsigned)item >= DISP_ITEM_COUNT) item = DISP_ITEM_CLT;
+    if (item == DISP_ITEM_RPM || item == DISP_ITEM_SPEED) {
+        const vehicle_profile_t *profile = vehicle_profile_get_active();
+        uint16_t maximum = profile ? (item == DISP_ITEM_RPM ?
+            profile->rpm_display_max : profile->speed_display_max) : 0;
+        if (maximum) {
+            static needle_scale_meta_t vehicle_scales[2];
+            needle_scale_meta_t *scale = &vehicle_scales[item == DISP_ITEM_SPEED];
+            *scale = (needle_scale_meta_t){0, maximum, 1};
+            return scale;
+        }
+    }
     return &s_needle_scale_meta[item];
+}
+
+uint8_t ui_disp_item_arc_percent(disp_item_t item, int32_t raw)
+{
+    const needle_scale_meta_t *scale = ui_disp_item_scale(item);
+    int32_t minimum = scale->nmin * scale->div;
+    int32_t maximum = scale->nmax * scale->div;
+    if (raw <= minimum || maximum <= minimum) return 0;
+    if (raw >= maximum) return 100;
+    return (uint8_t)((raw - minimum) * 100 / (maximum - minimum));
 }

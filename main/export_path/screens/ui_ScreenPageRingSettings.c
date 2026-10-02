@@ -14,7 +14,9 @@ static void refresh(void)
                           s_edit.g_warn_centi, s_edit.brightness};
     lv_slider_set_range(s_sliders[0], 500, s_edit.rpm_approach - 300);
     lv_slider_set_range(s_sliders[1], s_edit.rpm_green + 300, s_edit.rpm_red - 300);
-    lv_slider_set_range(s_sliders[2], s_edit.rpm_approach + 300, 8000);
+    // Preserve an existing custom threshold above the new vehicle display range.
+    int32_t maximum = LV_MAX(ui_disp_item_scale(DISP_ITEM_RPM)->nmax, s_edit.rpm_red);
+    lv_slider_set_range(s_sliders[2], s_edit.rpm_approach + 300, maximum);
     lv_slider_set_range(s_sliders[3], 50, 200);
     lv_slider_set_range(s_sliders[4], 10, 100);
     for (unsigned i = 0; i < 5; ++i) {

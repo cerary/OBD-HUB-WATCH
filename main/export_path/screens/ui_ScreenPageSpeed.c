@@ -118,7 +118,7 @@ void ui_ScreenPageSpeed_screen_init(void)
 
     lv_obj_add_event_cb(ui_SpeedPageArcSpeedBack, ui_event_speed_background, LV_EVENT_ALL, NULL);
 #if CONFIG_OBD_HW_VERSION_M5STOPWATCH
-    ui_peak_marker_register(ui_SpeedPageArcSpeedBack, UI_PEAK_SPEED, 240);
+    ui_peak_marker_register(ui_SpeedPageArcSpeedBack, UI_PEAK_SPEED, ui_disp_item_scale(DISP_ITEM_SPEED)->nmax);
 #endif
     lv_obj_move_foreground(ui_SpinnerSpeedPage);   // bring the ring to the front
     lv_obj_add_event_cb(ui_ScreenPageSpeed, ui_event_speed_background, LV_EVENT_GESTURE, NULL);

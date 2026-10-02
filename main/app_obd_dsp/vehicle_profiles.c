@@ -224,13 +224,18 @@ static const vehicle_profile_t s_profiles[] = {
     {
         // MINI John Cooper Works F56 8AT (BMW B48 2.0T, FWD transverse)
         .name = "JCW F56 8AT",
+        // 2021 MINI data: rated power at 5200..6200 rpm, top speed 246 km/h.
+        // These rounded display ranges provide headroom; they are not engine limits.
+        .rpm_display_max = 7000,
+        .speed_display_max = 280,
         .final_drive_ratio = 2.955f,       // MINI 2021 technical data: 8AT final drive
         .tire_rolling_radius_m = 0.308f,   // Front wheels (FWD drive wheels) 205/45R17
         .gear_count = 8,
         .gear_ratios = {0, 5.519f, 3.184f, 2.050f, 1.492f, 1.235f, 1.000f, 0.801f, 0.673f},
         .gear_tolerance = 0.08f,
         .oil_temp_strategy = {
-            // Boost pressure uses standard PID 010B (has_boost), no extra adaptation needed.
+            // PID 010B measures absolute MAP (one byte, max 255 kPa).
+            // Boost subtracts a fixed 100 kPa reference: at most 1.5 bar displayed.
             // Oil temp: MINI/BMW enhanced Mode 22 PID 5822, °C = A-60 (community verified, same monitor as N18/N16/B48);
             // Fallback to standard 01 5C if unavailable.
             .primary = OIL_TEMP_MODE_MINI_22_5822,

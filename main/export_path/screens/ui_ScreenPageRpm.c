@@ -119,7 +119,7 @@ void ui_ScreenPageRpm_screen_init(void)
 
     lv_obj_add_event_cb(ui_RpmPageArcRpmBack, ui_event_rpm_background, LV_EVENT_ALL, NULL);
 #if CONFIG_OBD_HW_VERSION_M5STOPWATCH
-    ui_peak_marker_register(ui_RpmPageArcRpmBack, UI_PEAK_RPM, 8000);
+    ui_peak_marker_register(ui_RpmPageArcRpmBack, UI_PEAK_RPM, ui_disp_item_scale(DISP_ITEM_RPM)->nmax);
 #endif
     lv_obj_move_foreground(ui_SpinnerRpmPage);   // bring the ring to the front
     lv_obj_add_event_cb(ui_ScreenPageRpm, ui_event_rpm_background, LV_EVENT_GESTURE, NULL);

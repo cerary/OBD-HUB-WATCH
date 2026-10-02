@@ -26,7 +26,6 @@ static ble_scan_found_cb_t scan_cb;
 static uint8_t master_mac[6];
 void *lvgl_mux;
 uint8_t ui_theme_gauge_page_index;
-static const vehicle_profile_t vehicle = {.name="JCW F56 8AT"};
 void host_update(uint16_t rpm);
 void host_speed(uint16_t speed);
 void host_gear(enGear gear,bool unknown);
@@ -36,12 +35,8 @@ esp_err_t nvs_cfg_set(const nvs_user_cfg_t *c) {user_cfg=*c; ++cfg_saves; return
 const status_ring_config_t *nvs_status_ring_get(void) {return &ring_cfg;}
 esp_err_t nvs_status_ring_set(const status_ring_config_t *c) {assert(status_ring_config_valid(c));ring_cfg=*c;++saves;return ESP_OK;}
 int16_t nvs_chart_alarm_get(uint8_t i) {return alarms[i];}
+void nvs_chart_alarm_set(uint8_t i,int16_t raw) {alarms[i]=raw;}
 void nvs_stat_update_speed(uint8_t speed, uint32_t dt) {(void)speed;(void)dt;}
-const vehicle_profile_t *vehicle_profile_get_active(void) {return &vehicle;}
-const vehicle_profile_t *vehicle_profile_get_all(uint8_t *n) {*n=1;return &vehicle;}
-void vehicle_profile_set_active(uint8_t n) {(void)n;}
-float vehicle_profile_calc_constant(const vehicle_profile_t *p) {(void)p;return 1.f;}
-const gear_ratio_range_t *vehicle_profile_get_gear_ranges(uint8_t *count) {*count=0;return NULL;}
 bool elm327_ble_is_connected(void) {return connected;}
 bool elm327_ble_cx_is_waiting(void) {return waiting || sleeping;}
 bool elm327_ble_cx_is_asleep(void) {return sleeping;}
@@ -95,7 +90,7 @@ bool theme_has_page(const char *name) {(void)name;return theme_pages>0;}
 STUB_SCREEN(ThemeGauge)
 
 STUB_SCREEN(TempCustom) STUB_SCREEN(InfoCustom)
-STUB_SCREEN(ChartConfig) STUB_SCREEN(ChartAlarm) STUB_SCREEN(OilWarn) STUB_SCREEN(RpmWarn)
+STUB_SCREEN(ChartConfig) STUB_SCREEN(OilWarn) STUB_SCREEN(RpmWarn)
 void ui_event_easter_egg_ota_button(lv_event_t *e) {(void)e;ui_ScreenPageOTAMode=lv_obj_create(NULL);lv_scr_load(ui_ScreenPageOTAMode);}
 lv_indev_t *__wrap_lv_indev_get_act(void) {return NULL;}
 lv_dir_t __wrap_lv_indev_get_gesture_dir(const lv_indev_t *indev) {(void)indev;return gesture_direction;}
@@ -118,7 +113,8 @@ static void flush(lv_disp_drv_t *drv,const lv_area_t *a,lv_color_t *c)
 }
 static void render(const char *folder,const char *name)
 {
-    lv_tick_inc(100);ui_status_ring_tick();ui_peak_marker_tick();lv_obj_update_layout(lv_scr_act());lv_refr_now(NULL);
+    lv_tick_inc(100);ui_status_ring_tick();ui_peak_marker_tick();lv_obj_update_layout(lv_scr_act());
+    lv_obj_invalidate(lv_scr_act());lv_refr_now(NULL); // deterministic full frame after rapid test-only page changes
     char file[1024];snprintf(file,sizeof(file),"%s/%s.ppm",folder,name);
     FILE *f=fopen(file,"wb");assert(f);fprintf(f,"P6\n%d %d\n255\n",W,H);
     for(int i=0;i<W*H;++i){lv_color32_t c;c.full=lv_color_to32(pixels[i]);unsigned char rgb[]={c.ch.red,c.ch.green,c.ch.blue};fwrite(rgb,1,3,f);}
@@ -224,11 +220,103 @@ static void test_data_entry(void)
     puts("PASS data entry: initial missing, valid zero/neutral, fresh cached values, same-value re-entry, stale/disconnected, timer wake, recovery and sweep");
 }
 static void frame(const char *folder,const char *name) {seed();render(folder,name);}
+
+static void select_jcw(void)
+{
+    uint8_t count;
+    const vehicle_profile_t *profiles=vehicle_profile_get_all(&count);
+    for (uint8_t i=0;i<count;++i) {
+        if (strcmp(profiles[i].name,"JCW F56 8AT")==0) {
+            vehicle_profile_set_active(i);return;
+        }
+    }
+    assert(!"JCW profile missing");
+}
+
+static char tick_labels[5][32];
+static void capture_tick_label(lv_event_t *event)
+{
+    lv_obj_draw_part_dsc_t *part=lv_event_get_draw_part_dsc(event);
+    if (part->type==LV_METER_DRAW_PART_TICK && part->text && part->id%5==0)
+        snprintf(tick_labels[part->id/5],32,"%s",part->text);
+}
+
+static void test_display_ranges(const char *folder)
+{
+    connected=true;sleeping=false;sweep=false;demo=false;
+    assert(ui_disp_item_scale(DISP_ITEM_RPM)->nmax==7000);
+    assert(ui_disp_item_scale(DISP_ITEM_SPEED)->nmax==280);
+    assert(disp_item_sweep_value(DISP_ITEM_RPM,1.f)==7000);
+    assert(disp_item_sweep_value(DISP_ITEM_SPEED,1.f)==280);
+    assert(ui_disp_item_arc_percent(DISP_ITEM_SPEED,246)==87);
+    assert(ui_disp_item_arc_percent(DISP_ITEM_SPEED,280)==100);
+    assert(ui_disp_item_arc_percent(DISP_ITEM_SPEED,300)==100);
+    assert(ui_disp_item_arc_percent(DISP_ITEM_RPM,-1)==0);
+    seed();obd_data_set_rpm(7000);lv_scr_load(ui_ScreenPageSpeed);lv_scr_load(ui_ScreenPageRpm);
+    assert(lv_arc_get_value(ui_RpmPageArcRpmBack)==100);
+    host_update(3500);assert(lv_arc_get_value(ui_RpmPageArcRpmBack)==50);
+    lv_tick_inc(300);obd_data_set_speed(246); // advance the real cache's time-based filter
+    lv_scr_load(ui_ScreenPageSpeed);
+    assert(lv_arc_get_value(ui_SpeedPageArcSpeedBack)==87);
+    host_speed(246);assert(lv_arc_get_value(ui_SpeedPageArcSpeedBack)==87);
+    render(folder,"speed-246");
+
+    // Inspect actual LVGL draw callbacks, not a duplicate tick-format implementation.
+    user_cfg.needle_source_idx=DISP_ITEM_BOOST;ui_needle_apply_source();
+    assert(ui_NeedleScale->min==0 && ui_NeedleScale->max==20);
+    obd_data_set_boost_x10(12);lv_scr_load(ui_ScreenPageNeedle);
+    assert(strcmp(lv_label_get_text(ui_NeedleValueLabel),"1.2")==0);
+    assert(ui_NeedleIndic->start_value==12);
+    lv_obj_add_event_cb(ui_NeedleMeter,capture_tick_label,LV_EVENT_DRAW_PART_BEGIN,NULL);
+    render(folder,"needle-boost");
+    const char *expected[]={"0.0","0.5","1.0","1.5","2.0"};
+    for(int i=0;i<5;++i)assert(strcmp(tick_labels[i],expected[i])==0);
+
+    user_cfg.chart_source_idx=DISP_ITEM_BOOST;ui_chart_apply_source();
+    assert(((lv_chart_t*)ui_ChartOilPressure)->ymax[0]==20);
+    alarms[DISP_ITEM_BOOST]=12;ui_ScreenPageChartAlarm_screen_init();
+    lv_scr_load(ui_ScreenPageChartAlarm);
+    lv_obj_t *slider=NULL,*label=NULL;
+    for(unsigned i=0;i<lv_obj_get_child_cnt(ui_ScreenPageChartAlarm);++i) {
+        lv_obj_t *child=lv_obj_get_child(ui_ScreenPageChartAlarm,i);
+        if(lv_obj_check_type(child,&lv_slider_class))slider=child;
+        if(lv_obj_check_type(child,&lv_label_class) && strcmp(lv_label_get_text(child),"1.2 bar")==0)label=child;
+    }
+    assert(slider && label && lv_slider_get_value(slider)==12);
+    lv_slider_set_value(slider,15,LV_ANIM_OFF);lv_event_send(slider,LV_EVENT_VALUE_CHANGED,NULL);
+    assert(alarms[DISP_ITEM_BOOST]==15 && strcmp(lv_label_get_text(label),"1.5 bar")==0);
+    render(folder,"boost-alarm");
+    lv_slider_set_value(slider,21,LV_ANIM_OFF);lv_event_send(slider,LV_EVENT_VALUE_CHANGED,NULL);
+    assert(alarms[DISP_ITEM_BOOST]==INT16_MAX && strcmp(lv_label_get_text(label),"OFF")==0);
+
+    // Fractional readings must retain needle precision on entry and normal updates.
+    user_cfg.needle_source_idx=DISP_ITEM_BAT;ui_needle_apply_source();obd_data_set_bat_mv(14400);
+    lv_scr_load(ui_ScreenPageNeedle);
+    assert(ui_NeedleScale->min==8000 && ui_NeedleScale->max==16000);
+    assert(ui_NeedleIndic->start_value==14400);
+    ui_needle_page_update(-1.f,-40,-40,-41,-1,-1,14400,-1,-1001,UINT16_MAX,UINT16_MAX,INT16_MIN,-1);
+    assert(ui_NeedleIndic->start_value==14400 && strcmp(lv_label_get_text(ui_NeedleValueLabel),"14.4")==0);
+    render(folder,"needle-voltage");
+    user_cfg.needle_source_idx=DISP_ITEM_AFR;ui_needle_apply_source();obd_data_set_afr_x100(1470);
+    lv_scr_load(ui_ScreenPageRpm);lv_scr_load(ui_ScreenPageNeedle);
+    assert(ui_NeedleIndic->start_value==1470 && strcmp(lv_label_get_text(ui_NeedleValueLabel),"14.7")==0);
+    ui_needle_page_update(.5f,-40,-40,-41,-1,-1,0,-1,-1001,UINT16_MAX,UINT16_MAX,INT16_MIN,-1);
+    assert(ui_NeedleIndic->start_value==1500 && strcmp(lv_label_get_text(ui_NeedleValueLabel),"15.0")==0);
+    ui_needle_page_update(-1.f,-40,-40,-41,-1,-1,0,-1,-1001,UINT16_MAX,UINT16_MAX,INT16_MIN,-1);
+    assert(ui_NeedleIndic->start_value==800 && strcmp(lv_label_get_text(ui_NeedleValueLabel),"--")==0);
+    user_cfg.needle_source_idx=DISP_ITEM_SPEED;ui_needle_apply_source();
+    user_cfg.chart_source_idx=DISP_ITEM_CLT;ui_chart_apply_source();
+    puts("PASS vehicle ranges: entry/update/arc/sweep, actual decimal ticks, raw chart/alarm units, fractional pointer precision and missing data");
+}
 int main(int argc,char **argv) {
     assert(argc==2);const char *folder=argv[1];lv_init();lv_tick_inc(1001);
     for(int i=0;i<RING_ITEM_COUNT;++i)alarms[i]=INT16_MAX;
     ring_cfg=status_ring_default_config();user_cfg.brightness_day=100;user_cfg.device_role=ESPNOW_ROLE_STANDALONE;
-    strcpy(user_cfg.ble_device_name,"OBDLink CX");user_cfg.vehicle_profile_idx=12;
+    strcpy(user_cfg.ble_device_name,"OBDLink CX");
+    vehicle_profile_set_active(0);
+    assert(ui_disp_item_scale(DISP_ITEM_RPM)->nmax==8000);
+    assert(ui_disp_item_scale(DISP_ITEM_SPEED)->nmax==240);
+    select_jcw();
     uint8_t tmap[3]={0,1,2}, imap[5]={0,2,3,4,1};
     memcpy(user_cfg.temp_display_map,tmap,3);memcpy(user_cfg.info_display_map,imap,5);
     user_cfg.needle_source_idx=6;user_cfg.chart_source_idx=0;
@@ -268,6 +356,7 @@ int main(int argc,char **argv) {
     lv_tick_inc(6000);obd_data_set_coolant_temp(92);host_update(UINT16_MAX);render(folder,"rpm-stale");
     sleeping=true;render(folder,"rpm-cx-sleep");
     test_data_entry();
+    test_display_ranges(folder);
     puts("Rendered all current carousel pages and settings from production LVGL/UI sources with illustrative inputs");
     return 0;
 }

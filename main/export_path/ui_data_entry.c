@@ -57,11 +57,11 @@ static void page_load_start(lv_event_t *event)
 
     if (screen == ui_ScreenPageRpm) {
         disp_item_set_text(ui_RpmPageArcLabelRpmText, DISP_ITEM_RPM, rpm, rpm != UINT16_MAX);
-        lv_arc_set_value(ui_RpmPageArcRpmBack, rpm == UINT16_MAX ? 0 : (uint32_t)rpm * 100 / SWEEP_RPM_PEAK);
+        lv_arc_set_value(ui_RpmPageArcRpmBack, rpm == UINT16_MAX ? 0 : ui_disp_item_arc_percent(DISP_ITEM_RPM, rpm));
     } else if (screen == ui_ScreenPageSpeed) {
         disp_item_set_text(ui_SpeedPageArcLabelSpeedText, DISP_ITEM_SPEED, speed, speed != UINT16_MAX);
 #if CONFIG_OBD_HW_VERSION_M5STOPWATCH
-        lv_arc_set_value(ui_SpeedPageArcSpeedBack, speed == UINT16_MAX ? 0 : speed >= 240 ? 100 : (uint32_t)speed * 100 / 240);
+        lv_arc_set_value(ui_SpeedPageArcSpeedBack, speed == UINT16_MAX ? 0 : ui_disp_item_arc_percent(DISP_ITEM_SPEED, speed));
 #else
         lv_arc_set_value(ui_SpeedPageArcSpeedBack, speed == UINT16_MAX ? 0 : (uint32_t)speed * 100 / SWEEP_SPEED_PEAK);
 #endif
@@ -94,10 +94,12 @@ static void page_load_start(lv_event_t *event)
         bool valid = disp_item_read_value(src, data.coolant_temp, data.intake_temp, data.oil_temp,
             data.load_pct, data.tps, data.bat_mv, data.oil_pressure_x10, data.brake_temp_x10,
             rpm, speed, data.boost_x10, data.afr_x100, &raw);
-        const needle_scale_meta_t *scale = &s_needle_scale_meta[src];
-        int32_t value = valid ? raw / scale->div : scale->nmin;
-        if (value < scale->nmin) value = scale->nmin;
-        if (value > scale->nmax) value = scale->nmax;
+        const needle_scale_meta_t *scale = ui_disp_item_scale(src);
+        int32_t minimum = scale->nmin * scale->div;
+        int32_t maximum = scale->nmax * scale->div;
+        int32_t value = valid ? raw : minimum;
+        if (value < minimum) value = minimum;
+        if (value > maximum) value = maximum;
         lv_meter_set_indicator_value(ui_NeedleMeter, ui_NeedleIndic, value);
     }
 }

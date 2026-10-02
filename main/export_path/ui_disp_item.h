@@ -12,6 +12,7 @@
 // ================================================================
 
 #include <stdint.h>
+#include <stddef.h>
 #include <stdbool.h>
 #include "lvgl.h"
 
@@ -69,6 +70,9 @@ int32_t disp_item_sweep_value(disp_item_t item, float r);
 // Format the numeric text per data item into label (includes unit conversion and dirty-check update)
 void disp_item_set_text(lv_obj_t *label, disp_item_t item, int32_t value, bool valid);
 
+// Shared numeric formatting for values, meter ticks and alarm thresholds (raw units).
+void disp_item_format_value(char *text, size_t size, disp_item_t item, int32_t value);
+
 // Color per NVS alarm threshold (nvs_chart_alarm_get): red above threshold, else white
 void disp_item_set_value_color(lv_obj_t *label, disp_item_t item, int32_t value, bool valid);
 
@@ -83,8 +87,11 @@ const char *ui_disp_item_unit(uint8_t item);
 uint32_t ui_disp_item_color(uint8_t item);
 void ui_disp_item_range(uint8_t item, int32_t *nmin, int32_t *nmax, int32_t *div);
 
-// Get the natural-range metadata directly (item must be < DISP_ITEM_COUNT)
+// Active vehicle's display range; unsupported/out-of-range items use the generic range.
 const needle_scale_meta_t *ui_disp_item_scale(disp_item_t item);
+
+// Clamp a raw reading to the same 0..100 arc range used by all display paths.
+uint8_t ui_disp_item_arc_percent(disp_item_t item, int32_t raw);
 
 #ifdef __cplusplus
 }

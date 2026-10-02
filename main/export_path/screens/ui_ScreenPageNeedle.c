@@ -21,6 +21,20 @@ static const uint8_t k_needle_sources_base[] = {0, 1, 2, 3, 4, 6, 7, 8, 9, NEEDL
 static uint8_t s_needle_sources[NEEDLE_BASE_COUNT + 1];
 static uint8_t s_needle_source_count = 0;
 
+static void needle_tick_label(lv_event_t *event)
+{
+    lv_obj_draw_part_dsc_t *part = lv_event_get_draw_part_dsc(event);
+    if (!part || part->class_p != &lv_meter_class ||
+        part->type != LV_METER_DRAW_PART_TICK || !part->text) return;
+    uint8_t source = nvs_cfg_get()->needle_source_idx;
+    if (source >= DISP_ITEM_COUNT) source = DISP_ITEM_CLT;
+    // LVGL draws this text immediately after the callback. Use our own buffer:
+    // lv_meter's tick buffer does not populate draw_part_dsc.text_length in 8.3.
+    static char text[32];
+    disp_item_format_value(text, sizeof(text), source, part->value);
+    part->text = text;
+}
+
 static lv_obj_t *s_roller_source = NULL;
 
 static void build_needle_sources(void)
@@ -87,6 +101,7 @@ void ui_ScreenPageNeedle_screen_init(void)
     lv_obj_set_style_bg_opa(ui_NeedleMeter, 0, LV_PART_MAIN);
     lv_obj_set_style_border_width(ui_NeedleMeter, 0, LV_PART_MAIN);
     ui_NeedleScale = lv_meter_add_scale(ui_NeedleMeter);
+    lv_obj_add_event_cb(ui_NeedleMeter, needle_tick_label, LV_EVENT_DRAW_PART_BEGIN, NULL);
 #if CONFIG_OBD_HW_VERSION_M5STOPWATCH
     lv_obj_set_style_text_font(ui_NeedleMeter, &ui_font_FontTypoderSize24, LV_PART_TICKS);
     lv_obj_set_style_text_color(ui_NeedleMeter, lv_color_hex(0xB8BCC4), LV_PART_TICKS);

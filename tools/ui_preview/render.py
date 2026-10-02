@@ -35,7 +35,7 @@ for line in (REPO / 'sdkconfig.stopwatch').read_text().splitlines():
         config.append(f"#define {name} {'1' if value == 'y' else value}")
 write('sdkconfig.h', '\n'.join(config) + '\n')
 write('esp_err.h', '#pragma once\ntypedef int esp_err_t;\n#define ESP_OK 0\n#define ESP_FAIL -1\n')
-write('esp_log.h', '#pragma once\n#define ESP_LOGI(...) ((void)0)\n#define ESP_LOGW(...) ((void)0)\n')
+write('esp_log.h', '#pragma once\n#define ESP_LOGI(...) ((void)0)\n#define ESP_LOGW(...) ((void)0)\n#define ESP_LOGD(...) ((void)0)\n')
 write('esp_heap_caps.h', '#pragma once\n#include <stddef.h>\n#undef heap_caps_malloc\n#define heap_caps_free free\n#ifdef HOST_G_FORCE\nvoid *host_g_alloc(size_t size);\n#define heap_caps_malloc(size, flags) host_g_alloc(size)\n#else\nvoid *host_power_alloc(size_t size);\n#define heap_caps_malloc(size, flags) host_power_alloc(size)\n#endif\n')
 write('esp_system.h', '#pragma once\nvoid esp_restart(void);\n')
 write('esp_timer.h', '''#pragma once
@@ -101,7 +101,7 @@ with (BUILD/'host_update.c').open('a') as f:
             + 'void host_info(bool is_slave,bool ble_now) {lv_obj_t *scr=lv_scr_act(); const nvs_user_cfg_t *user_cfg=nvs_cfg_get();\n'
             + info_refresh + '\n}\n')
 nav_source = (UI/'ui.c').read_text()
-nav = [function(nav_source, marker) for marker in ('static bool ui_stopwatch_carousel_gesture(', 'void ui_event_gear_background(', 'void ui_event_theme_gauge_background(', 'void ui_event_rpm_background(', 'void ui_event_speed_background(', 'void ui_event_temp_background(', 'void ui_event_oil_pressure_background(', 'void ui_event_needle_background(', 'void ui_event_info_background(', 'void ui_event_gforce_background(', 'void ui_event_expression_background(', 'void ui_event_easter_egg_background(', 'void ui_event_settings_background(', 'void ui_event_feedback_background(', 'void ui_event_ble_scan_background(', 'void ui_event_multi_gauge_background(', 'void ui_event_needle_config_background(', 'void ui_event_gforce_cal_background(', 'void ui_event_obd_prot_background(', 'bool ui_stopwatch_button_navigate(')]
+nav = [function(nav_source, marker) for marker in ('static bool ui_stopwatch_carousel_gesture(', 'void ui_event_gear_background(', 'void ui_event_theme_gauge_background(', 'void ui_event_rpm_background(', 'void ui_event_speed_background(', 'void ui_event_temp_background(', 'void ui_event_oil_pressure_background(', 'void ui_event_needle_background(', 'void ui_event_info_background(', 'void ui_event_gforce_background(', 'void ui_event_expression_background(', 'void ui_event_easter_egg_background(', 'void ui_event_settings_background(', 'void ui_event_feedback_background(', 'void ui_event_ble_scan_background(', 'void ui_event_multi_gauge_background(', 'void ui_event_needle_config_background(', 'void ui_event_chart_alarm_background(', 'void ui_event_gforce_cal_background(', 'void ui_event_obd_prot_background(', 'bool ui_stopwatch_button_navigate(')]
 write('host_navigation.c', '#include "host_shim.h"\n#include "ui_ext.h"\n'
       + '#include "bsp_obd_dsp/gauge_pair_ble_client.h"\n#include "bsp_obd_dsp/elm327_ble_client.h"\n#include "bsp_obd_dsp/espnow_link.h"\n#include "bsp_obd_dsp/nvs_storage.h"\n'
       + 'int theme_page_list_count(void); extern uint8_t ui_theme_gauge_page_index;\n'
@@ -113,7 +113,7 @@ defined=set(re.findall(r'^lv_obj_t\s*\*\s*(\w+)\s*(?:=|;)',page_text,re.M))
 globals_=re.findall(r'extern lv_obj_t \*\s*(\w+)\s*;', (UI/'ui.h').read_text())
 write('host_globals.c','#include "host_shim.h"\n'+'\n'.join(f'lv_obj_t *{n};' for n in globals_ if n not in defined)+'\nlv_meter_scale_t *ui_NeedleScale;\nlv_meter_indicator_t *ui_NeedleIndic;\n')
 with (BUILD/'host_update.c').open('a') as f:
-    markers=('static uint8_t needle_active_source(', 'void ui_needle_apply_source(', 'void ui_chart_apply_source(')
+    markers=('static uint8_t needle_active_source(', 'void ui_needle_apply_source(', 'void ui_needle_page_update(', 'void ui_chart_apply_source(')
     f.write('\nstatic int32_t s_chart_ymin,s_chart_ymax;\nstatic bool s_oil_pressure_trend_ready;\nstatic uint32_t s_oil_pressure_trend_tick;\n' + '\n'.join(function(nav_source,m) for m in markers) + '\n')
 
 flash_source = (UI/'ui_ext.c').read_text()
@@ -129,7 +129,8 @@ sources = [UI/'screens/ui_ScreenPageEasterEgg.c', UI/'screens/ui_ScreenPageLogo.
            UI/'screens/ui_ScreenPageODBProtocal.c', UI/'screens/ui_ScreenPageGForce.c',
            UI/'ui_status_ring.c', UI/'ui_disp_item.c', UI/'ui_peak_marker.c', UI/'screens/ui_ScreenPagePeakSettings.c',
            MAIN/'app_obd_dsp/peak_marker_policy.c',
-           MAIN/'app_obd_dsp/status_ring_policy.c', MAIN/'app_obd_dsp/obd_data_cache.c']
+           MAIN/'app_obd_dsp/status_ring_policy.c', MAIN/'app_obd_dsp/obd_data_cache.c', MAIN/'app_obd_dsp/vehicle_profiles.c',
+           UI/'screens/ui_ScreenPageChartAlarm.c']
 sources += [UI/'ui_data_entry.c', UI/'ui_display_filter.c']
 sources += [UI/f'fonts/ui_font_FontTypoderSize{s}.c' for s in (140, 90, 24, 20, 16, 36, 40, 44)]
 sources += [UI/f'images/{s}.c' for s in ('ui_img_pngblackear_png', 'ui_img_mini_jcw', 'ui_img_mini_gp3')]
@@ -163,7 +164,7 @@ original_inputs += [UI/'ui.c', UI/'ui_helpers.c', REPO/'sdkconfig.stopwatch', Pa
 original_inputs += list(MAIN.rglob('*.h'))
 (OUT/'sim-manifest.json').write_text(json.dumps({
     'method': 'Actual LVGL CPU renderer, unchanged UI source bodies, real ring adapter and real OBD cache',
-    'stubbed': ['BLE state', 'ESP timer/FreeRTOS synchronization', 'NVS persistence', 'PSRAM malloc', 'vehicle profile', 'hardware side effects'],
+    'stubbed': ['BLE state', 'ESP timer/FreeRTOS synchronization', 'NVS persistence', 'PSRAM malloc', 'hardware side effects'],
     'rendered_pages': ['status','gear','rpm','speed','temperature','info','g-force','needle','chart','expression','settings','cx-standby'],
     'data': 'Illustrative input fixtures, not recorded vehicle measurements',
     'source_sha256': {str(p.relative_to(REPO)): hashlib.sha256(p.read_bytes().replace(b'\r\n', b'\n')).hexdigest() for p in sorted(set(original_inputs))},

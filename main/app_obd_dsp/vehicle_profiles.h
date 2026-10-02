@@ -66,6 +66,8 @@ typedef struct {
     uint8_t obd_timeout;                 // ATST timeout value (ELM327 units, 0=default 0x19); for BMW G OBD fast responses, set 0x0F to reduce NO DATA waits
     uint8_t poll_gap_ms;                 // poll slot interval (ms), 0=use the default OBD_POLL_SLOT_GAP_MS(30ms)
     bool can_broadcast_mode;             // true=read data by listening to CAN broadcast frames via ATMA (currently ZN/C6 CAN only), replacing standard OBD PID polling
+    uint16_t rpm_display_max;            // dial full scale, not ECU rev limit; 0=generic 8000 rpm
+    uint16_t speed_display_max;          // dial full scale, not vehicle top speed; 0=generic 240 km/h
 } vehicle_profile_t;
 
 // Get all predefined vehicle profiles

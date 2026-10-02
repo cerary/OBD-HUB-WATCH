@@ -273,10 +273,10 @@ void ui_needle_apply_source(void)
 {
     if (!ui_NeedleMeter || !ui_NeedleScale) return;
     uint8_t src = needle_active_source();
-    const needle_scale_meta_t *ns = &s_needle_scale_meta[src];
+    const needle_scale_meta_t *ns = ui_disp_item_scale(src);
     // 270° sweep, start angle 135° (gap centered at the bottom), matching classic mechanical gauges
-    lv_meter_set_scale_range(ui_NeedleMeter, ui_NeedleScale, ns->nmin, ns->nmax, 270, 135);
-    lv_meter_set_indicator_value(ui_NeedleMeter, ui_NeedleIndic, ns->nmin);
+    lv_meter_set_scale_range(ui_NeedleMeter, ui_NeedleScale, ns->nmin * ns->div, ns->nmax * ns->div, 270, 135);
+    lv_meter_set_indicator_value(ui_NeedleMeter, ui_NeedleIndic, ns->nmin * ns->div);
     if (ui_NeedleNameLabel) lv_label_set_text(ui_NeedleNameLabel, s_disp_meta[src].name);
     if (ui_NeedleUnitLabel) lv_label_set_text(ui_NeedleUnitLabel, s_disp_meta[src].unit);
 }
@@ -289,18 +289,20 @@ void ui_needle_page_update(float sweep_ratio, int16_t clt, int16_t iat, int16_t 
 {
     if (!ui_ScreenPageNeedle || !ui_NeedleMeter || !ui_NeedleIndic) return;
     uint8_t src = needle_active_source();
-    const needle_scale_meta_t *ns = &s_needle_scale_meta[src];
+    const needle_scale_meta_t *ns = ui_disp_item_scale(src);
+    int32_t minimum = ns->nmin * ns->div;
+    int32_t maximum = ns->nmax * ns->div;
     static int32_t s_last_needle_meter = INT32_MIN;
 
     // Sweep self-test after connecting: the needle sweeps the full range nmin→nmax→nmin
     if (sweep_ratio >= 0.0f) {
         if (sweep_ratio > 1.0f) sweep_ratio = 1.0f;
-        int32_t nval = ns->nmin + (int32_t)((float)(ns->nmax - ns->nmin) * sweep_ratio);
+        int32_t nval = minimum + (int32_t)((float)(maximum - minimum) * sweep_ratio);
         if (nval != s_last_needle_meter) {
             lv_meter_set_indicator_value(ui_NeedleMeter, ui_NeedleIndic, nval);
             s_last_needle_meter = nval;
         }
-        disp_item_set_text(ui_NeedleValueLabel, src, nval * ns->div, true);
+        disp_item_set_text(ui_NeedleValueLabel, src, nval, true);
         return;
     }
 
@@ -315,16 +317,16 @@ void ui_needle_page_update(float sweep_ratio, int16_t clt, int16_t iat, int16_t 
         s_disp_needle = 0;  // reset on source switch, avoiding a ramp from the old source's value
     }
     /* Threshold = 3% of range: small ranges (temps) smooth by ±1, large ranges (RPM) approach proportionally */
-    int32_t needle_thresh = (ns->nmax - ns->nmin) / 30;
+    int32_t needle_thresh = (maximum - minimum) / 30;
     if (needle_thresh < 2) needle_thresh = 2;
 
     if (valid && ui_data_entry_pending(ui_ScreenPageNeedle)) s_disp_needle = raw;
     disp_item_update(&s_disp_needle, ui_NeedleValueLabel, src, raw, valid, needle_thresh);
 
     // Needle position: use the smoothed value
-    int32_t nval = (s_disp_needle / ns->div);
-    if (nval < ns->nmin) nval = ns->nmin;
-    if (nval > ns->nmax) nval = ns->nmax;
+    int32_t nval = valid ? s_disp_needle : minimum;
+    if (nval < minimum) nval = minimum;
+    if (nval > maximum) nval = maximum;
     if (ui_data_entry_pending(ui_ScreenPageNeedle) || nval != s_last_needle_meter) {
         lv_meter_set_indicator_value(ui_NeedleMeter, ui_NeedleIndic, nval);
         s_last_needle_meter = nval;
@@ -388,7 +390,7 @@ void ui_chart_apply_source(void)
     uint8_t src = nvs_cfg_get()->chart_source_idx;
     if (src >= DISP_ITEM_COUNT) src = DISP_ITEM_OILP;
     const disp_item_meta_t *m = &s_disp_meta[src];
-    const needle_scale_meta_t *ns = &s_needle_scale_meta[src];
+    const needle_scale_meta_t *ns = ui_disp_item_scale(src);
     s_chart_ymin = ns->nmin * ns->div;   // raw-value range (matches the raw values fed to the chart)
     s_chart_ymax = ns->nmax * ns->div;
     if (ui_LabelChartTitle) {
@@ -635,8 +637,12 @@ void my_timerMain(lv_timer_t * timer)
     /* ---- Data source: sweep or real OBD (sweep state machine moved to ui_ext.c) ---- */
     float sweep_ratio = ui_ext_sweep_tick(is_slave, user_cfg->brightness_day);
     if (sweep_ratio >= 0.0f) {
-        usRpm   = (uint16_t)(SWEEP_RPM_PEAK * sweep_ratio);
-        ucSpeed = (uint16_t)(SWEEP_SPEED_PEAK * sweep_ratio); // uint16_t so it can hold 999
+        usRpm   = (uint16_t)disp_item_sweep_value(DISP_ITEM_RPM, sweep_ratio);
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+        ucSpeed = (uint16_t)disp_item_sweep_value(DISP_ITEM_SPEED, sweep_ratio);
+#else
+        ucSpeed = (uint16_t)(SWEEP_SPEED_PEAK * sweep_ratio);
+#endif
         eGear   = (enGear)((int)(6.0f * sweep_ratio + 0.5f)); // up to 6th gear
         s_gear_unknown = false;
         // Temp/Info/Chart pages animate their own data item via disp_item_sweep_value();
@@ -691,7 +697,7 @@ void my_timerMain(lv_timer_t * timer)
                 lv_arc_set_value(ui_RpmPageArcRpmBack, 0);
             } else {
                 lv_label_set_text_fmt(ui_RpmPageArcLabelRpmText, "%d", (int)usRpm);
-                lv_arc_set_value(ui_RpmPageArcRpmBack, (uint32_t)usRpm*100/SWEEP_RPM_PEAK);
+                lv_arc_set_value(ui_RpmPageArcRpmBack, ui_disp_item_arc_percent(DISP_ITEM_RPM, usRpm));
             }
         }
     }
@@ -712,8 +718,7 @@ void my_timerMain(lv_timer_t * timer)
             if (!speed_valid) lv_label_set_text(ui_SpeedPageArcLabelSpeedText, "--");
             else lv_label_set_text_fmt(ui_SpeedPageArcLabelSpeedText, "%d", (int)s_disp_spd);
 #if CONFIG_OBD_HW_VERSION_M5STOPWATCH
-            // The large StopWatch dial uses a road-speed scale of 0..240 km/h.
-            lv_arc_set_value(ui_SpeedPageArcSpeedBack, (s_disp_spd >= 240) ? 100 : (uint32_t)s_disp_spd * 100 / 240);
+            lv_arc_set_value(ui_SpeedPageArcSpeedBack, ui_disp_item_arc_percent(DISP_ITEM_SPEED, s_disp_spd));
 #else
             lv_arc_set_value(ui_SpeedPageArcSpeedBack, (uint32_t)s_disp_spd*100/SWEEP_SPEED_PEAK);
 #endif

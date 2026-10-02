@@ -29,10 +29,11 @@ static void on_rpm_warn_slider_change(lv_event_t *e)
 {
     (void)e;
     int32_t val = lv_slider_get_value(s_slider_rpm_warn);
-    // Step 500: 1000~8000
+    // Step 500 within the vehicle's displayed range.
     val = ((val + 250) / 500) * 500;
     if (val < 1000) val = 1000;
-    if (val > 8000) val = 8000;
+    int32_t maximum = lv_slider_get_max_value(s_slider_rpm_warn);
+    if (val > maximum) val = maximum;
     lv_slider_set_value(s_slider_rpm_warn, val, LV_ANIM_OFF);
     lv_label_set_text_fmt(s_label_rpm_warn_val, "%ld", val);
 
@@ -148,10 +149,11 @@ void ui_ScreenPageRpmWarn_screen_init(void)
     lv_obj_set_style_text_color(s_label_rpm_warn_val, lv_color_hex(0xFF4D4D), LV_PART_MAIN);
     lv_obj_align(s_label_rpm_warn_val, LV_ALIGN_CENTER, 0, -30);
 
-    // Slider (1000~8000)
+    // Use the vehicle range, preserving an existing higher custom threshold.
+    int32_t maximum = LV_MAX(ui_disp_item_scale(DISP_ITEM_RPM)->nmax, thresh);
     s_slider_rpm_warn = lv_slider_create(ui_ScreenPageRpmWarn);
     lv_obj_set_style_clip_corner(s_slider_rpm_warn, true, 0);
-    lv_slider_set_range(s_slider_rpm_warn, 1000, 8000);
+    lv_slider_set_range(s_slider_rpm_warn, 1000, maximum);
     lv_slider_set_value(s_slider_rpm_warn, thresh, LV_ANIM_OFF);
     lv_obj_set_width(s_slider_rpm_warn, 220);
     lv_obj_set_height(s_slider_rpm_warn, 12);
@@ -170,7 +172,7 @@ void ui_ScreenPageRpmWarn_screen_init(void)
     ui_helpers_enable_option_feedback(s_slider_rpm_warn);
 
     lv_obj_t *range = lv_label_create(ui_ScreenPageRpmWarn);
-    lv_label_set_text(range, "1000 - 8000 rpm");
+    lv_label_set_text_fmt(range, "1000 - %ld rpm", (long)maximum);
     lv_obj_set_style_text_font(range, &ui_font_FontTypoderSize16, LV_PART_MAIN);
     lv_obj_set_style_text_color(range, lv_color_hex(0x777777), LV_PART_MAIN);
     lv_obj_align(range, LV_ALIGN_CENTER, 0,
