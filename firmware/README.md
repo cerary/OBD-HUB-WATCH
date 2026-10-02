@@ -1,6 +1,6 @@
 # Firmware — StopWatch C152 V1.0
 
-The current application is [stopwatch/OBD-HUB-WATCH-v1.0-20261002-needle-dial-short-app.bin](stopwatch/OBD-HUB-WATCH-v1.0-20261002-needle-dial-short-app.bin), with [manifest](stopwatch/manifest.json) and [SHA-256](stopwatch/SHA256SUMS).
+The current application is [stopwatch/OBD-HUB-WATCH-v1.0-20261002-temperature-alerts-app.bin](stopwatch/OBD-HUB-WATCH-v1.0-20261002-temperature-alerts-app.bin), with [manifest](stopwatch/manifest.json) and [SHA-256](stopwatch/SHA256SUMS).
 
 It is the exact app independently verified and boot-checked on 2026-10-02. It includes all README UI changes. The UI / vehicle acceptance test is still in progress; real LP ALERT delivery and rear wireless-5V wake remain pending.
 
@@ -10,7 +10,9 @@ Data pages now initialize with `--` and render fresh cached values before their 
 
 This image requires 5 seconds of continuous charger status before enabling the green LED. The preceding charging-LED test log showed ON after 5243ms, OFF 8ms after the charger released its status, and five 1–3.5 second charging pulses ignored. The user confirmed the visible LED stays OFF after page changes / button presses. Battery-only, unplug/shutdown and rear wireless-5V LED transitions remain untested. Battery percentage is estimated and does not control the LED.
 
-The JCW boot-animation resource and saved settings were independently verified unchanged. The connected Watch had INTRO set to OFF and its default page set to G FORCE; those choices were preserved.
+Temperature advisories use CLT 115/120°C, OIL 125/135°C and IAT 60/80°C. New samples confirm hold times, recovery hysteresis prevents color chatter, and invalid / stale / disconnected data clears alerts. CLT/OIL are global on live dials; IAT is local. These are custom observation thresholds, not factory ECU protection limits. See [temperature alerts](../docs/TEMPERATURE-ALERTS.md).
+
+First boot adopted the three temperature defaults once. All 20 unrelated logical NVS keys and the JCW boot-animation resource were independently verified unchanged. The connected Watch had INTRO set to OFF and its default page set to G FORCE; those choices were preserved.
 
 The previous UI-only application remains available as [stopwatch/OBD-HUB-WATCH-v1.0-20261002-app.bin](stopwatch/OBD-HUB-WATCH-v1.0-20261002-app.bin) for rollback; its SHA-256 is also retained.
 
