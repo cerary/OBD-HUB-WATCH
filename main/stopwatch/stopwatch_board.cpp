@@ -174,8 +174,9 @@ constexpr uint32_t SOUND_TONE_SAMPLES = SOUND_SAMPLE_RATE * 80 / 1000;
 constexpr uint32_t SOUND_DMA_COUNT = 4;
 constexpr uint32_t SOUND_DMA_FRAMES = 256;
 constexpr uint32_t SOUND_DRAIN_SAMPLES = (SOUND_DMA_COUNT + 1) * SOUND_DMA_FRAMES;
-constexpr int SOUND_VOLUME = 95;
-constexpr float SOUND_AMPLITUDE = 9000.f;
+constexpr int SOUND_VOLUME = 100;
+constexpr float SOUND_AMPLITUDE = 18000.f;
+constexpr uint32_t SOUND_FREQUENCY = 1600;
 portMUX_TYPE sound_dma_lock = portMUX_INITIALIZER_UNLOCKED;
 uint32_t sound_sent_buffers = 0;
 uint32_t sound_sent_nonzero_buffers = 0;
@@ -354,10 +355,10 @@ bool init_sound(void) {
         ESP_LOGI(TAG,"[AUDIO] ES8311 reg%02X=%02X",reg,value);
     }
     sound_ready=true;
-    ESP_LOGI(TAG, "[AUDIO] ES8311 ready: %luHz stereo vol=%d DMA=%lux%lu; cue=80ms DAC31=%02X DAC32=%02X power=%d/%d",
+    ESP_LOGI(TAG, "[AUDIO] ES8311 ready: %luHz stereo vol=%d DMA=%lux%lu; cue=80ms freq=%luHz peak=%d DAC31=%02X DAC32=%02X power=%d/%d",
              (unsigned long)SOUND_SAMPLE_RATE,SOUND_VOLUME,
              (unsigned long)SOUND_DMA_COUNT,(unsigned long)SOUND_DMA_FRAMES,
-             mute_reg,volume_reg,l3b,audio_power);
+             (unsigned long)SOUND_FREQUENCY,(int)SOUND_AMPLITUDE,mute_reg,volume_reg,l3b,audio_power);
     return true;
 }
 
@@ -399,7 +400,7 @@ void feedback_task(void *) {
         if (i<fade_samples) envelope=(float)i/fade_samples;
         else if (i>=SOUND_TONE_SAMPLES-fade_samples)
             envelope=(float)(SOUND_TONE_SAMPLES-1-i)/fade_samples;
-        const int16_t sample=(int16_t)(SOUND_AMPLITUDE*envelope*sinf(6.2831853f*660.f*i/SOUND_SAMPLE_RATE));
+        const int16_t sample=(int16_t)(SOUND_AMPLITUDE*envelope*sinf(6.2831853f*SOUND_FREQUENCY*i/SOUND_SAMPLE_RATE));
         pcm[2*i]=pcm[2*i+1]=sample;
     }
     for (;;) {
