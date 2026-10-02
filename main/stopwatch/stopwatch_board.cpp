@@ -174,9 +174,11 @@ constexpr uint32_t SOUND_TONE_SAMPLES = SOUND_SAMPLE_RATE * 80 / 1000;
 constexpr uint32_t SOUND_DMA_COUNT = 4;
 constexpr uint32_t SOUND_DMA_FRAMES = 256;
 constexpr uint32_t SOUND_DRAIN_SAMPLES = (SOUND_DMA_COUNT + 1) * SOUND_DMA_FRAMES;
-constexpr int SOUND_VOLUME = 80;
-volatile uint32_t sound_sent_buffers = 0;
-volatile uint32_t sound_sent_nonzero_buffers = 0;
+constexpr int SOUND_VOLUME = 95;
+constexpr float SOUND_AMPLITUDE = 9000.f;
+portMUX_TYPE sound_dma_lock = portMUX_INITIALIZER_UNLOCKED;
+uint32_t sound_sent_buffers = 0;
+uint32_t sound_sent_nonzero_buffers = 0;
 portMUX_TYPE feedback_lock = portMUX_INITIALIZER_UNLOCKED;
 uint8_t pending_feedback = 0;
 bool explicit_feedback_for_press = false;
@@ -228,12 +230,23 @@ bool set_speaker_amplifier(bool enabled) {
 bool audio_sent(i2s_chan_handle_t, i2s_event_data_t *event, void *) {
     // Observe completed DMA data before auto_clear_after_cb zeros it. No
     // logging or allocation in the interrupt; the feedback task reports it.
-    ++sound_sent_buffers;
+    bool nonzero=false;
     const int16_t *samples = static_cast<const int16_t *>(event->dma_buf);
     for (size_t i=0; samples && i<event->size/sizeof(int16_t); ++i) {
-        if (samples[i]) { ++sound_sent_nonzero_buffers; break; }
+        if (samples[i]) { nonzero=true; break; }
     }
+    portENTER_CRITICAL_ISR(&sound_dma_lock);
+    ++sound_sent_buffers;
+    if (nonzero) ++sound_sent_nonzero_buffers;
+    portEXIT_CRITICAL_ISR(&sound_dma_lock);
     return false;
+}
+
+void audio_sent_snapshot(uint32_t &sent, uint32_t &nonzero) {
+    portENTER_CRITICAL(&sound_dma_lock);
+    sent=sound_sent_buffers;
+    nonzero=sound_sent_nonzero_buffers;
+    portEXIT_CRITICAL(&sound_dma_lock);
 }
 
 void release_sound(void) {
@@ -352,8 +365,8 @@ void play_feedback_sound(uint8_t kind, int16_t *pcm) {
     if (!init_sound() || !set_speaker_amplifier(true)) return;
     const int64_t amplifier_start = esp_timer_get_time();
     vTaskDelay(pdMS_TO_TICKS(50));
-    const uint32_t sent_before=sound_sent_buffers;
-    const uint32_t nonzero_before=sound_sent_nonzero_buffers;
+    uint32_t sent_before=0,nonzero_before=0;
+    audio_sent_snapshot(sent_before,nonzero_before);
     const int64_t write_start = esp_timer_get_time();
     int rc = esp_codec_dev_write(sound_codec,pcm,SOUND_TONE_SAMPLES*SOUND_CHANNELS*sizeof(int16_t));
     const int64_t write_end = esp_timer_get_time();
@@ -368,12 +381,14 @@ void play_feedback_sound(uint8_t kind, int16_t *pcm) {
         sound_failure("cue write/drain",rc);
         return;
     }
+    uint32_t sent_after=0,nonzero_after=0;
+    audio_sent_snapshot(sent_after,nonzero_after);
     ESP_LOGI(TAG, "[AUDIO] cue=%u OK: write=%lldus PA=%lldms drain=%lu samples off=%s TX=%lu nonzero=%lu",
              kind,(long long)(write_end-write_start),
              (long long)((esp_timer_get_time()-amplifier_start)/1000),
              (unsigned long)SOUND_DRAIN_SAMPLES,amplifier_off ? "verified" : "FAILED",
-             (unsigned long)(sound_sent_buffers-sent_before),
-             (unsigned long)(sound_sent_nonzero_buffers-nonzero_before));
+             (unsigned long)(sent_after-sent_before),
+             (unsigned long)(nonzero_after-nonzero_before));
 }
 
 void feedback_task(void *) {
@@ -384,7 +399,7 @@ void feedback_task(void *) {
         if (i<fade_samples) envelope=(float)i/fade_samples;
         else if (i>=SOUND_TONE_SAMPLES-fade_samples)
             envelope=(float)(SOUND_TONE_SAMPLES-1-i)/fade_samples;
-        const int16_t sample=(int16_t)(5500.f*envelope*sinf(6.2831853f*660.f*i/SOUND_SAMPLE_RATE));
+        const int16_t sample=(int16_t)(SOUND_AMPLITUDE*envelope*sinf(6.2831853f*660.f*i/SOUND_SAMPLE_RATE));
         pcm[2*i]=pcm[2*i+1]=sample;
     }
     for (;;) {
