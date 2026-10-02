@@ -75,7 +75,9 @@ void ui_ScreenPageNeedle_screen_init(void)
     // ====== Needle dial ======
     ui_NeedleMeter = lv_meter_create(ui_ScreenPageNeedle);
 #if CONFIG_OBD_HW_VERSION_M5STOPWATCH
-    lv_obj_set_size(ui_NeedleMeter, 408, 408);
+    // 456px outer ring - 2 * (10px ring width + 5px gap).
+    lv_obj_set_size(ui_NeedleMeter, 426, 426);
+    lv_obj_set_style_pad_all(ui_NeedleMeter, 0, LV_PART_MAIN);
 #else
     lv_obj_set_size(ui_NeedleMeter, 320, 320);
 #endif
@@ -84,14 +86,19 @@ void ui_ScreenPageNeedle_screen_init(void)
     // Dial background transparent, blends into the black page
     lv_obj_set_style_bg_opa(ui_NeedleMeter, 0, LV_PART_MAIN);
     lv_obj_set_style_border_width(ui_NeedleMeter, 0, LV_PART_MAIN);
-    // Tick number font
+    ui_NeedleScale = lv_meter_add_scale(ui_NeedleMeter);
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+    lv_obj_set_style_text_font(ui_NeedleMeter, &ui_font_FontTypoderSize24, LV_PART_TICKS);
+    lv_obj_set_style_text_color(ui_NeedleMeter, lv_color_hex(0xB8BCC4), LV_PART_TICKS);
+    lv_meter_set_scale_ticks(ui_NeedleMeter, ui_NeedleScale, 21, 2, 9, lv_color_hex(0x626A73));
+    // Larger horizontal labels need space inside the major tick ends.
+    lv_meter_set_scale_major_ticks(ui_NeedleMeter, ui_NeedleScale, 5, 3, 14, lv_color_hex(0x969CA4), 34);
+#else
     lv_obj_set_style_text_font(ui_NeedleMeter, &ui_font_FontTypoderSize16, LV_PART_TICKS);
     lv_obj_set_style_text_color(ui_NeedleMeter, lv_color_hex(0x666666), LV_PART_TICKS);
-
-    ui_NeedleScale = lv_meter_add_scale(ui_NeedleMeter);
-    // Dim the ticks so the needle stands out
     lv_meter_set_scale_ticks(ui_NeedleMeter, ui_NeedleScale, 21, 1, 6, ui_theme_color_lv(UI_COLOR_ARC_TRACK));
     lv_meter_set_scale_major_ticks(ui_NeedleMeter, ui_NeedleScale, 5, 2, 10, lv_color_hex(0x555555), 14);
+#endif
     lv_meter_set_scale_range(ui_NeedleMeter, ui_NeedleScale, 0, 100, 270, 135); // placeholder, apply_source resets it
 
     // Needle: themed artwork if the active theme ships some, otherwise a drawn
