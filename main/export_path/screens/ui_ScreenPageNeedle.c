@@ -115,7 +115,12 @@ void ui_ScreenPageNeedle_screen_init(void)
         }
         else {
             ui_NeedleIndic = lv_meter_add_needle_line(ui_NeedleMeter, ui_NeedleScale, 10,
-                                                      ui_theme_color_lv(UI_COLOR_NEEDLE), -10);
+                                                      ui_theme_color_lv(UI_COLOR_NEEDLE),
+#if CONFIG_OBD_HW_VERSION_M5STOPWATCH
+                                                      -(14 + 5)); // stop 5px inside the major ticks
+#else
+                                                      -10);
+#endif
         }
     }
 
