@@ -233,6 +233,34 @@ static void select_jcw(void)
     assert(!"JCW profile missing");
 }
 
+static void test_gear_estimate(const char *folder)
+{
+    connected=true;sleeping=false;sweep=false;demo=false;select_jcw();
+    obd_data_invalidate_freshness();
+    obd_data_set_rpm(3000);obd_data_set_speed(59);
+    lv_scr_load(ui_ScreenPageRpm);lv_scr_load(ui_ScreenPageGear);
+    assert(strcmp(lv_label_get_text(ui_GearPageArcLabelGearNumText),"3")==0);
+    host_gear(GEAR_3,false);render(folder,"gear-estimated-3");
+    lv_tick_inc(100);obd_data_set_speed(179);
+    obd_data_snapshot_t data;obd_data_get_snapshot(&data);
+    assert(data.speed<179 && data.speed_unsmoothed==179);
+    lv_scr_load(ui_ScreenPageRpm);lv_scr_load(ui_ScreenPageGear);
+    assert(strcmp(lv_label_get_text(ui_GearPageArcLabelGearNumText),"8")==0);
+    host_gear(GEAR_8,false);render(folder,"gear-estimated-8");
+    obd_data_set_speed(45);lv_tick_inc(1000);
+    lv_scr_load(ui_ScreenPageRpm);lv_scr_load(ui_ScreenPageGear);
+    assert(strcmp(lv_label_get_text(ui_GearPageArcLabelGearNumText),"--")==0);
+    assert(lv_arc_get_value(ui_GearPageArcGearNumBack)==0);
+    host_gear(GEAR_UNKNOWN,true);
+    assert(strcmp(lv_label_get_text(ui_GearPageArcLabelGearNumText),"--")==0);
+    render(folder,"gear-estimated-unknown");
+    obd_data_set_speed(59);lv_scr_load(ui_ScreenPageRpm);lv_scr_load(ui_ScreenPageGear);
+    assert(strcmp(lv_label_get_text(ui_GearPageArcLabelGearNumText),"3")==0);
+    connected=false;lv_scr_load(ui_ScreenPageRpm);
+    assert_missing(ui_ScreenPageGear,ui_GearPageArcLabelGearNumText);
+    puts("PASS gear UI: estimated 3/8 from unsmoothed speed; expired unmatched estimate is -- with empty arc; recovery and disconnect");
+}
+
 static char tick_labels[5][32];
 static void capture_tick_label(lv_event_t *event)
 {
@@ -442,6 +470,7 @@ int main(int argc,char **argv) {
     lv_tick_inc(6000);obd_data_set_coolant_temp(92);host_update(UINT16_MAX);render(folder,"rpm-stale");
     sleeping=true;render(folder,"rpm-cx-sleep");
     test_data_entry();
+    test_gear_estimate(folder);
     test_display_ranges(folder);
     test_temperature_alerts(folder);
     puts("Rendered all current carousel pages and settings from production LVGL/UI sources with illustrative inputs");

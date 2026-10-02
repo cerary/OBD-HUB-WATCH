@@ -229,7 +229,7 @@ static const vehicle_profile_t s_profiles[] = {
         .rpm_display_max = 7000,
         .speed_display_max = 280,
         .final_drive_ratio = 2.955f,       // MINI 2021 technical data: 8AT final drive
-        .tire_rolling_radius_m = 0.308f,   // Front wheels (FWD drive wheels) 205/45R17
+        .tire_rolling_radius_m = 0.3146f,  // User's 215/40R18 PS5 nominal radius; rolling circumference may be calibrated
         .gear_count = 8,
         .gear_ratios = {0, 5.519f, 3.184f, 2.050f, 1.492f, 1.235f, 1.000f, 0.801f, 0.673f},
         .gear_tolerance = 0.08f,
@@ -459,6 +459,7 @@ void vehicle_profile_set_active(uint8_t index)
     s_active_idx = index;
     s_ranges_dirty = true;
     obd_data_reset_temp_cache();
+    obd_data_reset_gear_estimate();
 
     // Save to NVS
     nvs_user_cfg_t cfg = *nvs_cfg_get();
@@ -466,13 +467,18 @@ void vehicle_profile_set_active(uint8_t index)
     nvs_cfg_set(&cfg);
 
     ESP_LOGD(TAG, "Active profile set to [%d] '%s'", index, s_profiles[index].name);
+    ESP_LOGI(TAG, "[GEAR] profile=%s final=%.3f radius=%.4fm tolerance=%.0f%% transition hold=1000ms",
+             s_profiles[index].name, s_profiles[index].final_drive_ratio,
+             s_profiles[index].tire_rolling_radius_m, 100.0f * s_profiles[index].gear_tolerance);
 }
 
 float vehicle_profile_calc_constant(const vehicle_profile_t *p)
 {
     if (!p) return 0;
-    float denom = p->final_drive_ratio * 0.377f * p->tire_rolling_radius_m;
-    if (denom == 0) return 0;
+    // RPM / (km/h * constant) is the TOTAL ratio (gear * final drive).
+    // The comparison ranges already include final drive; do not multiply it again.
+    float denom = 0.37699112f * p->tire_rolling_radius_m;
+    if (denom <= 0) return 0;
     return 1.0f / denom;
 }
 

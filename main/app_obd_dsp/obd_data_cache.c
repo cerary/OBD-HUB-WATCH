@@ -5,6 +5,7 @@
 #include "freertos/task.h"
 #include "esp_timer.h"
 #include "bsp_obd_dsp/nvs_storage.h"
+#include <math.h>
 
 
 // Simple globals protected by a critical section
@@ -29,8 +30,13 @@ static int64_t s_sample_us[OBD_SAMPLE_COUNT];
 // Smoothing state (advanced on the setter side, getters only read; unaffected by the number of callers)
 static uint16_t s_rpm_smooth = 0;
 static uint8_t  s_speed_smooth = 0;
+static uint8_t  s_speed_unsmoothed = 0;
 static TickType_t s_speed_last_tick = 0;
 static float s_speed_smooth_f = 0.f;
+static enGear s_estimated_gear = GEAR_UNKNOWN;
+static int64_t s_gear_match_us;
+static const vehicle_profile_t *s_gear_profile;
+#define GEAR_TRANSITION_HOLD_US 1000000LL
 
 // RPM override layer: during multi-gauge linkage tests, the master gauge injects simulated RPM here.
 // When enabled, obd_data_get_rpm() returns the override value (used for both local display and ESP-NOW broadcast).
@@ -85,6 +91,7 @@ void obd_data_set_speed(uint8_t kmh)
 
     uint8_t smoothed = (uint8_t)(s_speed_smooth_f + 0.5f);
     s_speed_smooth = smoothed;
+    s_speed_unsmoothed = kmh;
     s_sample_us[OBD_SAMPLE_SPEED] = esp_timer_get_time();
     portEXIT_CRITICAL(&s_mux);
 }
@@ -309,6 +316,7 @@ static void copy_snapshot_locked(obd_data_snapshot_t *out)
 {
     out->rpm = s_rpm_override_en ? s_rpm_override_val : s_rpm_smooth;
     out->speed = s_speed_smooth;
+    out->speed_unsmoothed = s_speed_unsmoothed;
     out->coolant_temp = s_coolant_temp;
     out->oil_temp = s_oil_temp;
     out->intake_temp = s_intake_temp;
@@ -350,6 +358,7 @@ void obd_data_invalidate_freshness(void)
     for (unsigned i = 0; i < OBD_SAMPLE_COUNT; ++i) s_sample_us[i] = 0;
     s_rpm_smooth = 0;
     s_speed_smooth = 0;
+    s_speed_unsmoothed = 0;
     s_speed_smooth_f = 0.f;
     s_speed_last_tick = 0;
     s_rpm_override_en = false;
@@ -361,6 +370,9 @@ void obd_data_invalidate_freshness(void)
     s_boost_x10 = -32768;
     s_brake_temp_x10 = -1000;
     s_gear = 127;
+    s_estimated_gear = GEAR_UNKNOWN;
+    s_gear_match_us = 0;
+    s_gear_profile = NULL;
     s_brake_rs485_status = BRAKE_RS485_IDLE;
     portEXIT_CRITICAL(&s_mux);
 }
@@ -381,6 +393,7 @@ void obd_data_apply_freshness(obd_data_snapshot_t *out, const obd_data_freshness
     if (!obd_data_sample_is_fresh(f, channel)) out->field = invalid
     EXPIRE(OBD_SAMPLE_RPM, rpm, 0);
     EXPIRE(OBD_SAMPLE_SPEED, speed, 0);
+    EXPIRE(OBD_SAMPLE_SPEED, speed_unsmoothed, 0);
     EXPIRE(OBD_SAMPLE_CLT, coolant_temp, -40);
     EXPIRE(OBD_SAMPLE_IAT, intake_temp, -40);
     EXPIRE(OBD_SAMPLE_OIL, oil_temp, -100);
@@ -402,38 +415,70 @@ void obd_data_apply_freshness(obd_data_snapshot_t *out, const obd_data_freshness
  * @param speed vehicle speed (km/h)
  * @return the computed gear
  */
+void obd_data_reset_gear_estimate(void)
+{
+    portENTER_CRITICAL(&s_mux);
+    s_estimated_gear = GEAR_UNKNOWN;
+    s_gear_match_us = 0;
+    s_gear_profile = NULL;
+    portEXIT_CRITICAL(&s_mux);
+}
+
 enGear calculate_gear(float rpm, float speed) {
-    static enGear s_last_gear = GEAR_NEUTRAL;
-    // 1. Check input data validity
-    if (rpm <= 0 || speed <= 0) {
-        s_last_gear = GEAR_NEUTRAL;
-        return GEAR_NEUTRAL;
+    if (!isfinite(rpm) || !isfinite(speed) || rpm < 0 || speed < 0) {
+        obd_data_reset_gear_estimate();
+        return GEAR_UNKNOWN;
+    }
+    if (speed == 0) {
+        obd_data_reset_gear_estimate();
+        return GEAR_NEUTRAL; // Stationary placeholder, not a P/N/D/R selector reading.
+    }
+    if (rpm == 0 || speed < 5) {
+        obd_data_reset_gear_estimate();
+        return GEAR_UNKNOWN; // Creep and integer-speed quantization cannot identify a reliable gear.
     }
 
-    // 2. Compute the total gear ratio using the active vehicle profile
+    // Estimate total ratio from wheel speed, and compare it with gear * final drive.
     const vehicle_profile_t *profile = vehicle_profile_get_active();
     float calc_const = vehicle_profile_calc_constant(profile);
+    if (!profile || profile->final_drive_ratio <= 0 || !isfinite(calc_const) || calc_const <= 0) {
+        obd_data_reset_gear_estimate();
+        return GEAR_UNKNOWN;
+    }
     float total_ratio = rpm / (speed * calc_const);
-
-    // 3. Compare against each gear's ratio range
+    enGear matched = GEAR_UNKNOWN;
+    float best_error = INFINITY;
     uint8_t range_count = 0;
     const gear_ratio_range_t *ranges = vehicle_profile_get_gear_ranges(&range_count);
     for (int i = 0; i < range_count; i++) {
         if (total_ratio >= ranges[i].min_ratio &&
             total_ratio <= ranges[i].max_ratio) {
-            s_last_gear = ranges[i].gear;
-            return ranges[i].gear;
+            // Some inherited profiles have overlapping tolerances. Within the
+            // accepted ranges, prefer the closest center, not the first gear.
+            float center = (ranges[i].min_ratio + ranges[i].max_ratio) * 0.5f;
+            float error = fabsf(total_ratio / center - 1.0f);
+            if (error < best_error) {
+                best_error = error;
+                matched = ranges[i].gear;
+            }
         }
     }
-    
-    // 4. Outside all ranges: check if it could be neutral (high RPM, near-zero speed)
-    if (rpm > 800 && speed < 5) { // Above idle and nearly stationary
-        s_last_gear = GEAR_NEUTRAL;
-        return GEAR_NEUTRAL;
+
+    int64_t now = esp_timer_get_time();
+    portENTER_CRITICAL(&s_mux);
+    if (s_gear_profile != profile) {
+        s_estimated_gear = GEAR_UNKNOWN;
+        s_gear_profile = profile;
     }
-    
-    // 5. Unrecognized ratio: return the last gear
-    return s_last_gear;
+    if (matched != GEAR_UNKNOWN) {
+        s_estimated_gear = matched;
+        s_gear_match_us = now;
+    } else if (now < s_gear_match_us || now - s_gear_match_us >= GEAR_TRANSITION_HOLD_US) {
+        s_estimated_gear = GEAR_UNKNOWN;
+    }
+    enGear result = s_estimated_gear;
+    portEXIT_CRITICAL(&s_mux);
+    return result;
 }
 
 

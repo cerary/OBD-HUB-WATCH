@@ -71,8 +71,10 @@ static void page_load_start(lv_event_t *event)
         enGear gear = GEAR_NEUTRAL;
         if (known && data.gear >= 0 && data.gear <= GEAR_8) gear = (enGear)data.gear;
         else if (known && vehicle_profile_get_active()->obd_gear_did == 0)
-            gear = calculate_gear(data.rpm, data.speed);
+            gear = calculate_gear(data.rpm, data.speed_unsmoothed);
         else known = false;
+        if (!known) obd_data_reset_gear_estimate();
+        if (gear == GEAR_UNKNOWN) known = false;
         uint8_t count = vehicle_profile_get_active()->gear_count;
         if (count < 1) count = 6;
         if (gear > GEAR_8) gear = GEAR_8;

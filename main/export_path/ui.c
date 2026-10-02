@@ -622,6 +622,7 @@ void my_timerMain(lv_timer_t * timer)
         int8_t decoded_gear = obd.gear;
         if (!rpm_valid || !speed_valid) {
             s_gear_unknown = true;
+            obd_data_reset_gear_estimate();
         } else if (decoded_gear >= 0 && decoded_gear <= GEAR_8) {
             eGear = (enGear)decoded_gear;
             s_gear_unknown = false;
@@ -629,8 +630,8 @@ void my_timerMain(lv_timer_t * timer)
             // OBD gear profile: no RPM/speed ratio fallback — show "--" until a valid gear arrives
             s_gear_unknown = true;
         } else {
-            eGear = calculate_gear(obd.rpm, obd.speed);
-            s_gear_unknown = false;
+            eGear = calculate_gear(obd.rpm, obd.speed_unsmoothed);
+            s_gear_unknown = eGear == GEAR_UNKNOWN;
         }
     }
 

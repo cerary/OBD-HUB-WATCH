@@ -82,7 +82,7 @@ const vehicle_profile_t *vehicle_profile_get_active(void);
 // Set the active vehicle profile (also saved to NVS)
 void vehicle_profile_set_active(uint8_t index);
 
-// Calculate the speed constant: 1 / (final_drive * 0.377 * tire_radius)
+// Wheel RPM per km/h: 1 / ((2*pi*60/1000) * tire_radius). Final drive belongs to the gear ranges.
 float vehicle_profile_calc_constant(const vehicle_profile_t *p);
 
 // Generate the gear range array from the currently active vehicle profile

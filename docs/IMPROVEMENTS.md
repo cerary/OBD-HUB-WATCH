@@ -20,6 +20,7 @@
 | 转速报警恢复 | 结束闪烁恢复页面原背景；仅修改当前报警页面；删除 / 切页安全；断联 / 过期 / CX 静默终止旧值报警 | `ui_ext.c` |
 | 外圈 | 456px 外径 / 10px 宽 / 边缘 5px；整圈按当前页面渐变，蓝色连接、粉色局部失效、休眠 / 全缺失变暗；不闪烁 | `ui_status_ring.c`、`status_ring_policy.c`、`ui_helpers.c` |
 | 温度两级提醒（已刷机） | CLT 115/120°C、OIL 125/135°C 黄色/红色；IAT 60/80°C 黄色/橙色且仅在所在页面提示。新采样确认持续时间、3/5°C 恢复温差、无效/过期/断联清除；原生 ALARM 滑条调整高级门槛与 OFF。主机政策、实际 LVGL、NVS 迁移及启动检查通过，实车触发待测试 | `temperature_alert_policy.c`、`ui_status_ring.c`、`ui_disp_item.c`、`ui_ScreenPageChartAlarm.c`、[温度说明](TEMPERATURE-ALERTS.md) |
+| 档位估算换算修复 | 移除总传动比中的重复终传因子；JCW 215/40 R18 PS5 名义半径 0.3146 m。使用平滑前车速；容差重叠选范围内最近中心；失配保留不超过 1 秒后显示 `--`，断联/过期/车型切换重置。独立圆周样例及实际 UI 回归，实车换挡对照待测试 | `obd_data_cache.c`、`vehicle_profiles.c`、`ui_data_entry.c`、`ui.c`、`test_gear.c` |
 | 指示弧统一 | RPM / SPEED / GEAR 416px 外径、20px 宽，与外圈相隔 10px；RPM 90 字号内收避免五位值越界 | `screens/ui_ScreenPageRpm.c`、`ui_ScreenPageSpeed.c`、`ui_ScreenPageGear.c` |
 | 指针表布局 | 426px 刻度盘、清除默认内边距、距状态圈内沿约 5px；24 字号浅灰数字；主刻度 3×14px、小刻度 2×9px，34px 标签间距避免字与刻度相碰；红针距主刻度内端约 5px | `screens/ui_ScreenPageNeedle.c` |
 | 峰值标记 | RPM / SPEED 10px，5 秒渐隐；更高值刷新；低于峰值不重置时间；过期、断联、扫表、休眠清除 | `ui_peak_marker.c`、`peak_marker_policy.c` |

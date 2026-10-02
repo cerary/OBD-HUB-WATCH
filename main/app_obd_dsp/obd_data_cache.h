@@ -9,7 +9,7 @@ extern "C" {
 
 // Gear enum
 typedef enum {
-    GEAR_NEUTRAL, // Neutral or unrecognized
+    GEAR_NEUTRAL, // Stationary placeholder, or directly reported neutral
     GEAR_1,
     GEAR_2,
     GEAR_3,
@@ -18,6 +18,7 @@ typedef enum {
     GEAR_6,
     GEAR_7,   // 7-speed such as Porsche 997.2 PDK
     GEAR_8,   // 8-speed such as BMW ZF 8HP
+    GEAR_UNKNOWN = 127,
 } enGear;
 
 typedef enum {
@@ -43,6 +44,7 @@ typedef struct {
     int8_t   gear;
     int16_t  afr_x100;
     brake_rs485_status_t brake_rs485_status;
+    uint8_t speed_unsmoothed; // Same accepted speed sample, before the display-cache ramp; used for gear estimation
 } obd_data_snapshot_t;
 
 typedef enum {
@@ -95,6 +97,8 @@ void obd_data_apply_freshness(obd_data_snapshot_t *out, const obd_data_freshness
 // This never feeds the independent CX parking policy with synthetic zeros.
 void obd_data_invalidate_freshness(void);
 enGear calculate_gear(float rpm, float speed);
+// Clear the bounded estimate on disconnect, stale inputs, or vehicle change.
+void obd_data_reset_gear_estimate(void);
 void vMileageDataStatisticTask(void);
 
 #ifdef __cplusplus
